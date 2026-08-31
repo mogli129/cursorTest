@@ -39,11 +39,8 @@ namespace SwCheckinConflictButtonAddin
                 _swApp = ThisSW as ISldWorks;
                 if (_swApp == null)
                 {
-                    AddinLog.Info("ISldWorks 转换失败");
-                    return false;
+                    AddinLog.Info("ISldWorks 转换失败，仍继续加载");
                 }
-
-                _swApp.SetAddinCallbackInfo2(0, this, Cookie);
 
                 _deferredStart = new Timer { Interval = 1500 };
                 _deferredStart.Tick += OnDeferredStart;
