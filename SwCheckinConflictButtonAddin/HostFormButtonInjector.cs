@@ -5,14 +5,61 @@ using System.Windows.Forms;
 namespace SwCheckinConflictButtonAddin
 {
     /// <summary>
-    /// 把按钮加到目标 Form.Controls，锚在客户区右上角。
+    /// 把按钮加到目标 Form.Controls。必须在该 Form 自己的 UI 线程上创建并 Add。
     /// </summary>
     internal static class HostFormButtonInjector
     {
         public static bool TryEnsureButton(IntPtr hwnd)
         {
-            Form form = TryGetForm(hwnd);
-            if (form == null || form.IsDisposed)
+            try
+            {
+                Form form = TryGetForm(hwnd);
+                if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                {
+                    return false;
+                }
+
+                if (form.InvokeRequired)
+                {
+                    return (bool)form.Invoke(new Func<bool>(() => InjectOnFormThread(form, hwnd)));
+                }
+
+                return InjectOnFormThread(form, hwnd);
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("注入失败: " + ex.Message);
+                return false;
+            }
+        }
+
+        public static void Remove(IntPtr hwnd)
+        {
+            try
+            {
+                Form form = TryGetForm(hwnd);
+                if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                {
+                    return;
+                }
+
+                if (form.InvokeRequired)
+                {
+                    form.Invoke(new Action(() => RemoveOnFormThread(form)));
+                    return;
+                }
+
+                RemoveOnFormThread(form);
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("移除注入按钮失败: " + ex.Message);
+            }
+        }
+
+        private static bool InjectOnFormThread(Form form, IntPtr hwnd)
+        {
+            if (form.IsDisposed)
             {
                 return false;
             }
@@ -30,33 +77,21 @@ namespace SwCheckinConflictButtonAddin
             PositionButton(form, button);
             form.Controls.Add(button);
             button.BringToFront();
-            AddinLog.Info("已注入 Controls, form=" + form.GetType().FullName);
+            AddinLog.Info("已注入 Controls, form=" + form.GetType().FullName
+                + " thread=" + System.Threading.Thread.CurrentThread.ManagedThreadId);
             return true;
         }
 
-        public static void Remove(IntPtr hwnd)
+        private static void RemoveOnFormThread(Form form)
         {
-            Form form = TryGetForm(hwnd);
-            if (form == null || form.IsDisposed)
-            {
-                return;
-            }
-
             Button button = FindInjectedButton(form);
             if (button == null)
             {
                 return;
             }
 
-            try
-            {
-                form.Controls.Remove(button);
-                button.Dispose();
-            }
-            catch (Exception ex)
-            {
-                AddinLog.Info("移除注入按钮失败: " + ex.Message);
-            }
+            form.Controls.Remove(button);
+            button.Dispose();
         }
 
         private static Form TryGetForm(IntPtr hwnd)

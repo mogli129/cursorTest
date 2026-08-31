@@ -255,11 +255,11 @@ namespace SwCheckinConflictButtonAddin
                     _overlays[hwnd] = overlay;
                 }
 
-                AddinLog.Info("FromHandle 失败，改用 overlay hwnd=" + hwnd.ToInt64().ToString("X"));
+                AddinLog.Info("无法注入 Controls，改用 overlay hwnd=" + hwnd.ToInt64().ToString("X"));
             }
             catch (Exception ex)
             {
-                AddinLog.Info("附加按钮失败: " + ex);
+                AddinLog.Info("附加按钮失败: " + ex.Message);
             }
         }
 
