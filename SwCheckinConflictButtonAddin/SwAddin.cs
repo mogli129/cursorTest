@@ -3,6 +3,8 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swpublished;
 
 namespace SwCheckinConflictButtonAddin
 {
@@ -18,46 +20,105 @@ namespace SwCheckinConflictButtonAddin
         private const string AddinKeyTemplate = @"SOFTWARE\SolidWorks\Addins\{{{0}}}";
         private const string StartupKeyTemplate = @"Software\SolidWorks\AddInsStartup\{{{0}}}";
 
-        private object _swApp;
+        private ISldWorks _swApp;
         private ConflictWindowWatcher _watcher;
+        private Timer _deferredStart;
 
-        public bool ConnectToSW(object thisSw, int cookie)
+        public SwAddin()
         {
-            _swApp = thisSw;
-            AddinLog.Info("ConnectToSW cookie=" + cookie);
+            AddinLog.Info(
+                "SwAddin ctor bits=" + (IntPtr.Size * 8)
+                + " dll=" + typeof(SwAddin).Assembly.Location);
+        }
 
+        public bool ConnectToSW(object ThisSW, int Cookie)
+        {
             try
             {
-                Application.EnableVisualStyles();
-            }
-            catch
-            {
-                // SW 可能已经启用过视觉样式
-            }
+                AddinLog.Info("ConnectToSW begin cookie=" + Cookie);
+                _swApp = ThisSW as ISldWorks;
+                if (_swApp == null)
+                {
+                    AddinLog.Info("ISldWorks 转换失败");
+                    return false;
+                }
 
-            _watcher = new ConflictWindowWatcher();
-            _watcher.Start();
-            return true;
+                _swApp.SetAddinCallbackInfo2(0, this, Cookie);
+
+                _deferredStart = new Timer { Interval = 1500 };
+                _deferredStart.Tick += OnDeferredStart;
+                _deferredStart.Start();
+
+                AddinLog.Info("ConnectToSW ok, watcher will start shortly");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("ConnectToSW exception: " + ex);
+                return false;
+            }
         }
 
         public bool DisconnectFromSW()
         {
             AddinLog.Info("DisconnectFromSW");
-            if (_watcher != null)
+            try
             {
-                _watcher.Dispose();
-                _watcher = null;
+                if (_deferredStart != null)
+                {
+                    _deferredStart.Stop();
+                    _deferredStart.Tick -= OnDeferredStart;
+                    _deferredStart.Dispose();
+                    _deferredStart = null;
+                }
+
+                if (_watcher != null)
+                {
+                    _watcher.Dispose();
+                    _watcher = null;
+                }
+
+                if (_swApp != null)
+                {
+                    Marshal.ReleaseComObject(_swApp);
+                    _swApp = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("DisconnectFromSW exception: " + ex);
             }
 
-            if (_swApp != null && Marshal.IsComObject(_swApp))
-            {
-                Marshal.ReleaseComObject(_swApp);
-            }
-
-            _swApp = null;
             GC.Collect();
             GC.WaitForPendingFinalizers();
             return true;
+        }
+
+        private void OnDeferredStart(object sender, EventArgs e)
+        {
+            try
+            {
+                if (_deferredStart != null)
+                {
+                    _deferredStart.Stop();
+                    _deferredStart.Tick -= OnDeferredStart;
+                    _deferredStart.Dispose();
+                    _deferredStart = null;
+                }
+
+                if (_watcher != null)
+                {
+                    return;
+                }
+
+                _watcher = new ConflictWindowWatcher();
+                _watcher.Start();
+                AddinLog.Info("watcher started");
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("启动窗口监视失败（插件仍保持加载）: " + ex);
+            }
         }
 
         [ComRegisterFunction]
@@ -66,6 +127,7 @@ namespace SwCheckinConflictButtonAddin
             string title = GetDisplayName(t);
             string description = GetDescription(t);
             string guid = t.GUID.ToString("B");
+            AddinLog.Info("RegisterFunction " + guid + " dll=" + t.Assembly.Location);
 
             WriteAddinKey(Registry.CurrentUser, guid, title, description);
             try
@@ -74,7 +136,7 @@ namespace SwCheckinConflictButtonAddin
             }
             catch (Exception ex)
             {
-                AddinLog.Info("写入 HKLM Addins 失败（可用 HKCU）: " + ex.Message);
+                AddinLog.Info("写入 HKLM Addins 失败: " + ex.Message);
             }
 
             using (var startup = Registry.CurrentUser.CreateSubKey(string.Format(StartupKeyTemplate, t.GUID)))
@@ -103,7 +165,7 @@ namespace SwCheckinConflictButtonAddin
                     return;
                 }
 
-                key.SetValue(null, 0);
+                key.SetValue(null, 1);
                 key.SetValue("Title", title);
                 key.SetValue("Description", description);
             }

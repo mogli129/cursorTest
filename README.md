@@ -21,12 +21,25 @@
 
 ## 安装
 
-1. **完全退出 SOLIDWORKS**
+1. **完全退出 SOLIDWORKS**（任务栏托盘里也不能留）
 2. 右键 `SwCheckinConflictButtonAddin\install.bat` → **以管理员身份运行**
-3. 启动 SW 2022
-4. `工具` → `插件`，勾选 **检入冲突窗口按钮**，并勾选左侧「启动时加载」
+3. 脚本会把 DLL 复制到 `%ProgramData%\SwCheckinConflictButtonAddin` 再注册（不要直接从 `H:` 盘注册，映射盘上 COM 经常加载失败）
+4. 启动 SW 2022
+5. `工具` → `插件`，勾选 **检入冲突窗口按钮**，并勾选左侧「启动时加载」
 
 卸载用 `uninstall.bat`（同样要管理员），然后重启 SW。
+
+### 勾选后重新打开又没勾上
+
+说明 SOLIDWORKS 加载插件失败。按这个顺序查：
+
+1. 确认编译的是 **x64**，不是 AnyCPU/x86
+2. **管理员**运行 `install.bat`，看到“注册成功”
+3. 完全退出 SW 后再打开
+4. 看 `%TEMP%\SwCheckinConflictButtonAddin.log`
+   - 没有 `SwAddin ctor`：COM 没创建成功（位数不对、没 /codebase、或从映射盘加载）
+   - 有 ctor 没有 `ConnectToSW`：接口 QueryInterface 失败
+   - 有 `ConnectToSW exception`：把这段日志发出来
 
 ## 改按钮行为
 

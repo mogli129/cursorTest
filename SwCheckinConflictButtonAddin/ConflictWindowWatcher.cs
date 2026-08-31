@@ -33,18 +33,32 @@ namespace SwCheckinConflictButtonAddin
         {
             _winEventProc = OnWinEvent;
             uint pid = (uint)Process.GetCurrentProcess().Id;
-            _hook = NativeMethods.SetWinEventHook(
-                NativeMethods.EVENT_OBJECT_DESTROY,
-                NativeMethods.EVENT_OBJECT_NAMECHANGE,
-                IntPtr.Zero,
-                _winEventProc,
-                pid,
-                0,
-                NativeMethods.WINEVENT_OUTOFCONTEXT);
+            try
+            {
+                _hook = NativeMethods.SetWinEventHook(
+                    NativeMethods.EVENT_OBJECT_DESTROY,
+                    NativeMethods.EVENT_OBJECT_NAMECHANGE,
+                    IntPtr.Zero,
+                    _winEventProc,
+                    pid,
+                    0,
+                    NativeMethods.WINEVENT_OUTOFCONTEXT);
+                AddinLog.Info("WinEvent hook=" + _hook);
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("SetWinEventHook 失败，改用轮询: " + ex.Message);
+            }
 
-            AddinLog.Info("WinEvent hook=" + _hook);
             _pollTimer.Start();
-            ScanTopLevelWindows();
+            try
+            {
+                ScanTopLevelWindows();
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("首次扫描失败: " + ex.Message);
+            }
         }
 
         public void Stop()
