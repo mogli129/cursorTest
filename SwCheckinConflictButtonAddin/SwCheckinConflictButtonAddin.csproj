@@ -16,34 +16,16 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <WarningLevel>4</WarningLevel>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
-
-  <PropertyGroup>
-    <SwApiRedist Condition="Exists('C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist\SolidWorks.Interop.swpublished.dll')">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist</SwApiRedist>
-    <SwApiRedist Condition="'$(SwApiRedist)' == '' And Exists('C:\Program Files\Dassault Systemes\SOLIDWORKS 2022\api\redist\SolidWorks.Interop.swpublished.dll')">C:\Program Files\Dassault Systemes\SOLIDWORKS 2022\api\redist</SwApiRedist>
-    <SwApiRedist Condition="'$(SwApiRedist)' == '' And Exists('C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS 2022\api\redist\SolidWorks.Interop.swpublished.dll')">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS 2022\api\redist</SwApiRedist>
-  </PropertyGroup>
-
-  <Target Name="EnsureSwInterop" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="'$(SwApiRedist)' == ''" Text="找不到 SolidWorks Interop DLL。请安装 SOLIDWORKS 2022，或在编译前设置属性 SwApiRedist 指向 api\redist 目录。" />
-  </Target>
 
   <ItemGroup>
-    <Reference Include="SolidWorks.Interop.sldworks">
-      <HintPath>$(SwApiRedist)\SolidWorks.Interop.sldworks.dll</HintPath>
+    <PackageReference Include="SolidWorks.Interop.sldworks" Version="32.1.0">
       <EmbedInteropTypes>false</EmbedInteropTypes>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="SolidWorks.Interop.swpublished">
-      <HintPath>$(SwApiRedist)\SolidWorks.Interop.swpublished.dll</HintPath>
+    </PackageReference>
+    <PackageReference Include="SolidWorks.Interop.swpublished" Version="32.1.0">
       <EmbedInteropTypes>false</EmbedInteropTypes>
-      <Private>true</Private>
-    </Reference>
-    <Reference Include="SolidWorks.Interop.swconst">
-      <HintPath>$(SwApiRedist)\SolidWorks.Interop.swconst.dll</HintPath>
-      <EmbedInteropTypes>false</EmbedInteropTypes>
-      <Private>true</Private>
-    </Reference>
+    </PackageReference>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
     <None Include="SwCheckinConflictButtonAddin.dll.config">

@@ -15,7 +15,7 @@
 
 ## 编译
 
-用 VS 打开 `SwCheckinConflictButtonAddin.sln`，配置选 **Release**，平台为 **x64**（项目已设 `PlatformTarget=x64`），生成。
+用 VS 打开 `SwCheckinConflictButtonAddin.sln`，配置选 **Release**，平台为 **x64**，生成。首次编译会从 NuGet 还原 SolidWorks Interop，**不需要**本机 `api\redist` 路径。
 
 输出：`SwCheckinConflictButtonAddin\bin\Release\SwCheckinConflictButtonAddin.dll`
 
