@@ -9,7 +9,6 @@ namespace SwCheckinConflictButtonAddin
         public const uint EVENT_OBJECT_DESTROY = 0x8001;
         public const uint EVENT_OBJECT_SHOW = 0x8002;
         public const uint EVENT_OBJECT_HIDE = 0x8003;
-        public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
         public const uint EVENT_OBJECT_NAMECHANGE = 0x800C;
 
         public const uint WINEVENT_OUTOFCONTEXT = 0;

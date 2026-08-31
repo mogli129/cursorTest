@@ -57,7 +57,7 @@ public static void OnClick(IntPtr targetWindow)
 
 ## 原理
 
-插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。`SetWinEventHook` 监听本进程窗口显示/改名，400ms 定时器再扫一遍。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`（`Anchor = Top | Right`）；失败才用标题栏 overlay。
+插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
 
 ## 日志
 

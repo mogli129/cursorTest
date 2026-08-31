@@ -19,15 +19,19 @@ namespace SwCheckinConflictButtonAddin
             new Dictionary<IntPtr, CaptionButtonOverlay>();
 
         private NativeMethods.WinEventDelegate _winEventProc;
-        private IntPtr _hook = IntPtr.Zero;
+        private IntPtr _hookCreate = IntPtr.Zero;
+        private IntPtr _hookName = IntPtr.Zero;
         private bool _disposed;
+
+        private const int PollIdleMs = 2000;
+        private const int PollActiveMs = 1000;
 
         public ConflictWindowWatcher()
         {
             _sync = new Control();
             GC.KeepAlive(_sync.Handle);
 
-            _pollTimer = new Timer { Interval = 400 };
+            _pollTimer = new Timer { Interval = PollIdleMs };
             _pollTimer.Tick += (s, e) => ScanTopLevelWindows();
         }
 
@@ -37,15 +41,24 @@ namespace SwCheckinConflictButtonAddin
             uint pid = (uint)Process.GetCurrentProcess().Id;
             try
             {
-                _hook = NativeMethods.SetWinEventHook(
+                // DESTROY..HIDE 连续且不含 LOCATIONCHANGE；改标题单独钩 NAMECHANGE。
+                _hookCreate = NativeMethods.SetWinEventHook(
                     NativeMethods.EVENT_OBJECT_DESTROY,
+                    NativeMethods.EVENT_OBJECT_HIDE,
+                    IntPtr.Zero,
+                    _winEventProc,
+                    pid,
+                    0,
+                    NativeMethods.WINEVENT_OUTOFCONTEXT);
+                _hookName = NativeMethods.SetWinEventHook(
+                    NativeMethods.EVENT_OBJECT_NAMECHANGE,
                     NativeMethods.EVENT_OBJECT_NAMECHANGE,
                     IntPtr.Zero,
                     _winEventProc,
                     pid,
                     0,
                     NativeMethods.WINEVENT_OUTOFCONTEXT);
-                AddinLog.Info("WinEvent hook=" + _hook);
+                AddinLog.Info("WinEvent hook create=" + _hookCreate + " name=" + _hookName);
             }
             catch (Exception ex)
             {
@@ -66,11 +79,8 @@ namespace SwCheckinConflictButtonAddin
         public void Stop()
         {
             _pollTimer.Stop();
-            if (_hook != IntPtr.Zero)
-            {
-                NativeMethods.UnhookWinEvent(_hook);
-                _hook = IntPtr.Zero;
-            }
+            Unhook(ref _hookCreate);
+            Unhook(ref _hookName);
 
             List<IntPtr> injected;
             List<CaptionButtonOverlay> overlays;
@@ -121,15 +131,31 @@ namespace SwCheckinConflictButtonAddin
                 return;
             }
 
-            if (eventType == NativeMethods.EVENT_OBJECT_LOCATIONCHANGE)
+            if (eventType == NativeMethods.EVENT_OBJECT_SHOW
+                || eventType == NativeMethods.EVENT_OBJECT_NAMECHANGE)
+            {
+                if (!string.Equals(
+                    NativeMethods.GetWindowTitle(hwnd),
+                    AddinOptions.TargetWindowTitle,
+                    StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+            else if (eventType == NativeMethods.EVENT_OBJECT_HIDE
+                || eventType == NativeMethods.EVENT_OBJECT_DESTROY)
             {
                 lock (_syncLock)
                 {
-                    if (!_overlays.ContainsKey(hwnd))
+                    if (!_injected.Contains(hwnd) && !_overlays.ContainsKey(hwnd))
                     {
                         return;
                     }
                 }
+            }
+            else
+            {
+                return;
             }
 
             RunOnUi(() => HandleEvent(eventType, hwnd));
@@ -141,21 +167,6 @@ namespace SwCheckinConflictButtonAddin
                 || eventType == NativeMethods.EVENT_OBJECT_HIDE)
             {
                 Detach(hwnd);
-                return;
-            }
-
-            if (eventType == NativeMethods.EVENT_OBJECT_LOCATIONCHANGE)
-            {
-                CaptionButtonOverlay overlay;
-                lock (_syncLock)
-                {
-                    if (!_overlays.TryGetValue(hwnd, out overlay))
-                    {
-                        return;
-                    }
-                }
-
-                overlay.Reposition();
                 return;
             }
 
@@ -216,6 +227,34 @@ namespace SwCheckinConflictButtonAddin
                     overlay.Reposition();
                 }
             }
+
+            UpdatePollInterval();
+        }
+
+        private void UpdatePollInterval()
+        {
+            bool active;
+            lock (_syncLock)
+            {
+                active = _injected.Count > 0 || _overlays.Count > 0;
+            }
+
+            int interval = active ? PollActiveMs : PollIdleMs;
+            if (_pollTimer.Interval != interval)
+            {
+                _pollTimer.Interval = interval;
+            }
+        }
+
+        private static void Unhook(ref IntPtr hook)
+        {
+            if (hook == IntPtr.Zero)
+            {
+                return;
+            }
+
+            NativeMethods.UnhookWinEvent(hook);
+            hook = IntPtr.Zero;
         }
 
         private void Attach(IntPtr hwnd)
@@ -245,6 +284,7 @@ namespace SwCheckinConflictButtonAddin
                     }
 
                     AddinLog.Info("已附加注入按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+                    UpdatePollInterval();
                     return;
                 }
 
@@ -256,6 +296,7 @@ namespace SwCheckinConflictButtonAddin
                 }
 
                 AddinLog.Info("无法注入 Controls，改用 overlay hwnd=" + hwnd.ToInt64().ToString("X"));
+                UpdatePollInterval();
             }
             catch (Exception ex)
             {
@@ -283,6 +324,7 @@ namespace SwCheckinConflictButtonAddin
             if (injected || overlay != null)
             {
                 AddinLog.Info("已移除按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+                UpdatePollInterval();
             }
         }
 
