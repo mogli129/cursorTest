@@ -7,12 +7,14 @@ namespace SwCheckinConflictButtonAddin
 {
     /// <summary>
     /// 用 WinEvent 即时发现目标窗体，并用定时器兜底扫描。
+    /// 优先把按钮注入 Form.Controls，失败再退回标题栏 overlay。
     /// </summary>
     internal sealed class ConflictWindowWatcher : IDisposable
     {
         private readonly Control _sync;
         private readonly Timer _pollTimer;
         private readonly object _syncLock = new object();
+        private readonly HashSet<IntPtr> _injected = new HashSet<IntPtr>();
         private readonly Dictionary<IntPtr, CaptionButtonOverlay> _overlays =
             new Dictionary<IntPtr, CaptionButtonOverlay>();
 
@@ -70,11 +72,19 @@ namespace SwCheckinConflictButtonAddin
                 _hook = IntPtr.Zero;
             }
 
+            List<IntPtr> injected;
             List<CaptionButtonOverlay> overlays;
             lock (_syncLock)
             {
+                injected = new List<IntPtr>(_injected);
+                _injected.Clear();
                 overlays = new List<CaptionButtonOverlay>(_overlays.Values);
                 _overlays.Clear();
+            }
+
+            foreach (IntPtr hwnd in injected)
+            {
+                HostFormButtonInjector.Remove(hwnd);
             }
 
             foreach (var overlay in overlays)
@@ -170,10 +180,10 @@ namespace SwCheckinConflictButtonAddin
             }, IntPtr.Zero);
 
             var stale = new List<IntPtr>();
-            List<CaptionButtonOverlay> live;
+            List<CaptionButtonOverlay> liveOverlays;
             lock (_syncLock)
             {
-                foreach (var hwnd in _overlays.Keys)
+                foreach (IntPtr hwnd in _injected)
                 {
                     if (!seen.Contains(hwnd) || !NativeMethods.IsWindow(hwnd)
                         || !NativeMethods.IsWindowVisible(hwnd))
@@ -182,15 +192,24 @@ namespace SwCheckinConflictButtonAddin
                     }
                 }
 
-                live = new List<CaptionButtonOverlay>(_overlays.Values);
+                foreach (IntPtr hwnd in _overlays.Keys)
+                {
+                    if (!seen.Contains(hwnd) || !NativeMethods.IsWindow(hwnd)
+                        || !NativeMethods.IsWindowVisible(hwnd))
+                    {
+                        stale.Add(hwnd);
+                    }
+                }
+
+                liveOverlays = new List<CaptionButtonOverlay>(_overlays.Values);
             }
 
-            foreach (var hwnd in stale)
+            foreach (IntPtr hwnd in stale)
             {
                 Detach(hwnd);
             }
 
-            foreach (var overlay in live)
+            foreach (var overlay in liveOverlays)
             {
                 if (!overlay.IsDisposed)
                 {
@@ -203,6 +222,12 @@ namespace SwCheckinConflictButtonAddin
         {
             lock (_syncLock)
             {
+                if (_injected.Contains(hwnd))
+                {
+                    HostFormButtonInjector.TryEnsureButton(hwnd);
+                    return;
+                }
+
                 if (_overlays.ContainsKey(hwnd))
                 {
                     _overlays[hwnd].Attach();
@@ -212,6 +237,17 @@ namespace SwCheckinConflictButtonAddin
 
             try
             {
+                if (HostFormButtonInjector.TryEnsureButton(hwnd))
+                {
+                    lock (_syncLock)
+                    {
+                        _injected.Add(hwnd);
+                    }
+
+                    AddinLog.Info("已附加注入按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+                    return;
+                }
+
                 var overlay = new CaptionButtonOverlay(hwnd);
                 overlay.Attach();
                 lock (_syncLock)
@@ -219,7 +255,7 @@ namespace SwCheckinConflictButtonAddin
                     _overlays[hwnd] = overlay;
                 }
 
-                AddinLog.Info("已附加按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+                AddinLog.Info("FromHandle 失败，改用 overlay hwnd=" + hwnd.ToInt64().ToString("X"));
             }
             catch (Exception ex)
             {
@@ -229,19 +265,25 @@ namespace SwCheckinConflictButtonAddin
 
         private void Detach(IntPtr hwnd)
         {
+            bool injected;
             CaptionButtonOverlay overlay;
             lock (_syncLock)
             {
-                if (!_overlays.TryGetValue(hwnd, out overlay))
-                {
-                    return;
-                }
-
+                injected = _injected.Remove(hwnd);
+                _overlays.TryGetValue(hwnd, out overlay);
                 _overlays.Remove(hwnd);
             }
 
+            if (injected)
+            {
+                HostFormButtonInjector.Remove(hwnd);
+            }
+
             TryCloseOverlay(overlay);
-            AddinLog.Info("已移除按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+            if (injected || overlay != null)
+            {
+                AddinLog.Info("已移除按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+            }
         }
 
         private static void TryCloseOverlay(CaptionButtonOverlay overlay)

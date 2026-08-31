@@ -1,6 +1,6 @@
 # 检入冲突窗口按钮（SOLIDWORKS 2022 插件）
 
-在对方插件弹出 **「检入文档冲突处理」** 窗口时，于标题栏右上角（关闭按钮左侧）叠加一个自定义按钮。
+在对方插件弹出 **「检入文档冲突处理」** 窗口时，通过 `Control.FromHandle` 拿到该 `Form`，把自定义按钮加进 `Controls`，锚在客户区右上角。若拿不到 `Form`，再退回标题栏 overlay。
 
 匹配规则：
 
@@ -57,16 +57,15 @@ public static void OnClick(IntPtr targetWindow)
 
 ## 原理
 
-插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。`SetWinEventHook` 监听本进程窗口显示/改名/移动，400ms 定时器再扫一遍，避免漏钩。找到目标后创建一个 `WS_EX_NOACTIVATE` 的无边框窗体，Owner 设为目标窗口，并按 `DWMWA_CAPTION_BUTTON_BOUNDS` 贴在系统关闭按钮左侧。
+插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。`SetWinEventHook` 监听本进程窗口显示/改名，400ms 定时器再扫一遍。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`（`Anchor = Top | Right`）；失败才用标题栏 overlay。
 
 ## 日志
 
 `%TEMP%\SwCheckinConflictButtonAddin.log`
 
-按钮没出现时先看这个文件里有没有 `ConnectToSW`、`已附加按钮`。
+按钮没出现时先看这个文件里有没有 `ConnectToSW`、`已注入 Controls`。
 
 ## 注意
 
-- 本机没有 SOLIDWORKS 时无法在此环境验证弹窗；请在 SW2022 上按上面步骤安装后，真正弹出「检入文档冲突处理」看按钮是否出现。
-- 若对方窗口是自绘标题栏，系统关闭按钮区域可能为空，此时会退回到窗口右上角估算位置。
+- 按钮在客户区右上角，不在系统关闭按钮旁边。若被对方 Dock=Fill 面板盖住，日志里仍会有注入成功，但按钮不可见。
 - 点击按钮目前只弹出提示框，把业务写进 `CustomButtonActions.OnClick` 即可。

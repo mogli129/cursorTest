@@ -9,6 +9,7 @@ namespace SwCheckinConflictButtonAddin
         public const string WinFormsClassPrefix = "WindowsForms10.Window";
 
         public const string ButtonText = "自定义";
+        public const string ButtonTag = "SwCheckinConflictCustomButton";
         public const int ButtonWidth = 72;
         public const int ButtonHeight = 24;
         public const int ButtonGapFromCaptionButtons = 6;
