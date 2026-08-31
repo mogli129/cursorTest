@@ -184,13 +184,13 @@ namespace SwCheckinConflictButtonAddin
 
         private static string GetDisplayName(Type t)
         {
-            var att = (DisplayNameAttribute)Attribute.GetCustomAttribute(t, typeof(DisplayNameAttribute));
+            var att = (DisplayNameAttribute)System.Attribute.GetCustomAttribute(t, typeof(DisplayNameAttribute));
             return att != null ? att.DisplayName : t.Name;
         }
 
         private static string GetDescription(Type t)
         {
-            var att = (DescriptionAttribute)Attribute.GetCustomAttribute(t, typeof(DescriptionAttribute));
+            var att = (DescriptionAttribute)System.Attribute.GetCustomAttribute(t, typeof(DescriptionAttribute));
             return att != null ? att.Description : t.FullName;
         }
     }
