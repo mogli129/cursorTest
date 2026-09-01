@@ -55,6 +55,8 @@ public static void OnClick(IntPtr targetWindow)
 
 改按钮文字、大小：编辑 `AddinOptions.cs`。
 
+点击自定义按钮会读取冲突表格中的 CAD 行，弹出「CAD冲突文档权限」窗口（编号、名称、文件夹全路径、文档/文件夹读写权限、操作）。操作列会回写到原冲突界面。权限优先从行绑定对象反射；若显示「未知」，把日志里的「首行绑定对象」发回以便对接 TS2024 / 后端接口。
+
 ## 原理
 
 插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
