@@ -5,7 +5,7 @@ using System.Windows.Forms;
 namespace SwCheckinConflictButtonAddin
 {
     /// <summary>
-    /// 把按钮加到目标 Form.Controls。必须在该 Form 自己的 UI 线程上创建并 Add。
+    /// 把按钮加到目标 Form.Controls。跨线程只用 BeginInvoke，避免关闭弹窗时和 SW 主线程死锁。
     /// </summary>
     internal static class HostFormButtonInjector
     {
@@ -14,14 +14,25 @@ namespace SwCheckinConflictButtonAddin
             try
             {
                 Form form = TryGetForm(hwnd);
-                if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                if (form == null || form.IsDisposed || form.Disposing || !form.IsHandleCreated)
                 {
                     return false;
                 }
 
                 if (form.InvokeRequired)
                 {
-                    return (bool)form.Invoke(new Func<bool>(() => InjectOnFormThread(form, hwnd)));
+                    form.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            InjectOnFormThread(form, hwnd);
+                        }
+                        catch (Exception ex)
+                        {
+                            AddinLog.Info("窗体线程注入失败: " + ex.Message);
+                        }
+                    }));
+                    return true;
                 }
 
                 return InjectOnFormThread(form, hwnd);
@@ -38,14 +49,24 @@ namespace SwCheckinConflictButtonAddin
             try
             {
                 Form form = TryGetForm(hwnd);
-                if (form == null || form.IsDisposed || !form.IsHandleCreated)
+                if (form == null || form.IsDisposed || form.Disposing || !form.IsHandleCreated)
                 {
                     return;
                 }
 
                 if (form.InvokeRequired)
                 {
-                    form.Invoke(new Action(() => RemoveOnFormThread(form)));
+                    form.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            RemoveOnFormThread(form);
+                        }
+                        catch (Exception ex)
+                        {
+                            AddinLog.Info("窗体线程移除按钮失败: " + ex.Message);
+                        }
+                    }));
                     return;
                 }
 
@@ -59,7 +80,7 @@ namespace SwCheckinConflictButtonAddin
 
         private static bool InjectOnFormThread(Form form, IntPtr hwnd)
         {
-            if (form.IsDisposed)
+            if (form.IsDisposed || form.Disposing)
             {
                 return false;
             }
@@ -84,6 +105,11 @@ namespace SwCheckinConflictButtonAddin
 
         private static void RemoveOnFormThread(Form form)
         {
+            if (form.IsDisposed || form.Disposing)
+            {
+                return;
+            }
+
             Button button = FindInjectedButton(form);
             if (button == null)
             {

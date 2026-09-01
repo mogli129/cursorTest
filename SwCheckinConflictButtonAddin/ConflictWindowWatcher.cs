@@ -94,6 +94,7 @@ namespace SwCheckinConflictButtonAddin
 
             foreach (IntPtr hwnd in injected)
             {
+                // 卸载插件时也不要同步 Invoke 到对方窗体线程
                 HostFormButtonInjector.Remove(hwnd);
             }
 
@@ -261,15 +262,8 @@ namespace SwCheckinConflictButtonAddin
         {
             lock (_syncLock)
             {
-                if (_injected.Contains(hwnd))
+                if (_injected.Contains(hwnd) || _overlays.ContainsKey(hwnd))
                 {
-                    HostFormButtonInjector.TryEnsureButton(hwnd);
-                    return;
-                }
-
-                if (_overlays.ContainsKey(hwnd))
-                {
-                    _overlays[hwnd].Attach();
                     return;
                 }
             }
@@ -306,8 +300,8 @@ namespace SwCheckinConflictButtonAddin
 
         private void Detach(IntPtr hwnd)
         {
-            bool injected;
             CaptionButtonOverlay overlay;
+            bool injected;
             lock (_syncLock)
             {
                 injected = _injected.Remove(hwnd);
@@ -315,28 +309,46 @@ namespace SwCheckinConflictButtonAddin
                 _overlays.Remove(hwnd);
             }
 
-            if (injected)
-            {
-                HostFormButtonInjector.Remove(hwnd);
-            }
-
+            // 弹窗正在关闭时不要 Remove/Invoke 对方 Form，子控件会随窗体一起销毁。
             TryCloseOverlay(overlay);
             if (injected || overlay != null)
             {
-                AddinLog.Info("已移除按钮 hwnd=" + hwnd.ToInt64().ToString("X"));
+                AddinLog.Info("已移除跟踪 hwnd=" + hwnd.ToInt64().ToString("X"));
                 UpdatePollInterval();
             }
         }
 
         private static void TryCloseOverlay(CaptionButtonOverlay overlay)
         {
+            if (overlay == null || overlay.IsDisposed)
+            {
+                return;
+            }
+
             try
             {
-                if (overlay != null && !overlay.IsDisposed)
+                if (overlay.IsHandleCreated && overlay.InvokeRequired)
                 {
-                    overlay.Close();
-                    overlay.Dispose();
+                    overlay.BeginInvoke(new Action(() =>
+                    {
+                        try
+                        {
+                            if (!overlay.IsDisposed)
+                            {
+                                overlay.Close();
+                                overlay.Dispose();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            AddinLog.Info("异步关闭 overlay 失败: " + ex.Message);
+                        }
+                    }));
+                    return;
                 }
+
+                overlay.Close();
+                overlay.Dispose();
             }
             catch (Exception ex)
             {
