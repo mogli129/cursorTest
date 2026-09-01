@@ -6,6 +6,8 @@ namespace SwCheckinConflictButtonAddin
     {
         public string Number { get; set; }
         public string Name { get; set; }
+        public string DocType { get; set; }
+        public string DomainName { get; set; }
         public string FolderPath { get; set; }
         public string DocRead { get; set; }
         public string DocModify { get; set; }
@@ -18,5 +20,8 @@ namespace SwCheckinConflictButtonAddin
         public int SourceRowIndex { get; set; }
         public int SourceOpColumn { get; set; }
         public object DataBoundItem { get; set; }
+        public object FolderObject { get; set; }
+        public object NativeView { get; set; }
+        public string SourceOpField { get; set; }
     }
 }

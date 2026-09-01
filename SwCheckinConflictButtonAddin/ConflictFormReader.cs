@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
@@ -25,14 +26,48 @@ namespace SwCheckinConflictButtonAddin
             AddinLog.Info("冲突窗体类型=" + form.GetType().FullName
                 + " 程序集=" + form.GetType().Assembly.Location);
 
+            IList boundList = HostBindingLocator.FindConflictList(form);
             DataGridView grid = FindBestGrid(form);
-            if (grid == null)
+            if (grid != null)
             {
-                AddinLog.Info("未找到 DataGridView");
-                DumpChildren(form, 0);
-                return result;
+                LogGrid(grid);
+                result = ReadFromDataGrid(grid, boundList);
+            }
+            else
+            {
+                List<ReflectedGridRow> reflected = ReflectedGridReader.TryRead(form);
+                if (reflected.Count > 0)
+                {
+                    result = ReadFromReflected(reflected);
+                }
+                else if (boundList != null && boundList.Count > 0)
+                {
+                    result = ReadFromList(boundList);
+                }
+                else
+                {
+                    AddinLog.Info("未找到冲突表格或绑定列表");
+                    DumpChildren(form, 0);
+                    return result;
+                }
             }
 
+            if (result.Count > 0)
+            {
+                PermissionServiceProbe.Prepare(result[0].DataBoundItem ?? form);
+                foreach (CadPermissionRow row in result)
+                {
+                    PermissionResolver.Fill(row);
+                }
+            }
+
+            List<CadPermissionRow> cad = FilterCad(result);
+            AddinLog.Info("冲突行=" + result.Count + " CAD行=" + cad.Count);
+            return cad;
+        }
+
+        private static void LogGrid(DataGridView grid)
+        {
             AddinLog.Info("使用表格 Name=" + grid.Name + " Rows=" + grid.Rows.Count
                 + " Cols=" + grid.Columns.Count);
             for (int i = 0; i < grid.Columns.Count; i++)
@@ -41,18 +76,22 @@ namespace SwCheckinConflictButtonAddin
                 AddinLog.Info("  col[" + i + "] header=" + column.HeaderText
                     + " name=" + column.Name + " type=" + column.GetType().Name);
             }
+        }
 
+        private static List<CadPermissionRow> ReadFromDataGrid(DataGridView grid, IList boundList)
+        {
             int numberCol = FindColumn(grid, "编号", "文档编号", "代号", "编码", "Code", "Number");
             int nameCol = FindColumn(grid, "名称", "文档名称", "文件名", "Name", "FileName");
             int pathCol = FindColumn(grid, "路径", "文件夹", "目录", "位置", "Path", "Folder");
+            int typeCol = FindColumn(grid, "类型", "文档类型", "对象类型", "Type", "DocType");
             int opCol = FindColumn(grid, "操作", "处理", "Action", "Operation");
             if (opCol < 0)
             {
                 opCol = FindOperationColumnByType(grid);
             }
 
-            int cadCount = 0;
-            var allRows = new List<CadPermissionRow>();
+            var rows = new List<CadPermissionRow>();
+            int dataIndex = 0;
             for (int r = 0; r < grid.Rows.Count; r++)
             {
                 DataGridViewRow row = grid.Rows[r];
@@ -62,67 +101,191 @@ namespace SwCheckinConflictButtonAddin
                 }
 
                 object bound = row.DataBoundItem;
-                if (r == 0 && bound != null)
+                if (bound == null && boundList != null && dataIndex < boundList.Count)
                 {
-                    AddinLog.Info("首行绑定对象 " + ReflectionValue.DescribeObject(bound, 24));
+                    bound = boundList[dataIndex];
+                }
+
+                dataIndex++;
+                if (rows.Count == 0 && bound != null)
+                {
+                    AddinLog.Info("首行绑定对象 " + ReflectionValue.DescribeObject(bound, 32));
                 }
 
                 string number = GetCell(row, numberCol);
                 string name = GetCell(row, nameCol);
                 string path = GetCell(row, pathCol);
-                if (bound != null)
-                {
-                    if (string.IsNullOrWhiteSpace(number))
-                    {
-                        number = ReflectionValue.GetString(bound,
-                            "Number", "DocNumber", "DocumentNumber", "Code", "ItemCode",
-                            "PartNumber", "ObjectNumber", "DocNo", "编号", "文档编号", "Id");
-                    }
-
-                    if (string.IsNullOrWhiteSpace(name))
-                    {
-                        name = ReflectionValue.GetString(bound,
-                            "Name", "DocName", "DocumentName", "FileName", "DisplayName",
-                            "名称", "文档名称", "文件名");
-                    }
-
-                    if (string.IsNullOrWhiteSpace(path))
-                    {
-                        path = ReflectionValue.GetString(bound,
-                            "FolderPath", "FullPath", "Path", "FolderFullPath", "ParentPath",
-                            "ContainerPath", "Directory", "文件夹", "路径", "全路径");
-                    }
-                }
+                string type = GetCell(row, typeCol);
+                FillFromBound(ref number, ref name, ref path, ref type, bound);
 
                 var item = new CadPermissionRow
                 {
                     Number = number,
                     Name = string.IsNullOrWhiteSpace(name) ? number : name,
                     FolderPath = path,
+                    DocType = type,
                     SourceGrid = grid,
                     SourceRowIndex = r,
                     SourceOpColumn = opCol,
                     DataBoundItem = bound
                 };
                 FillOperation(item, row, opCol);
-                PermissionResolver.Fill(item);
-                allRows.Add(item);
+                rows.Add(item);
+            }
 
-                if (IsCadRow(name, number, bound))
+            return rows;
+        }
+
+        private static List<CadPermissionRow> ReadFromReflected(List<ReflectedGridRow> reflected)
+        {
+            var rows = new List<CadPermissionRow>();
+            for (int i = 0; i < reflected.Count; i++)
+            {
+                ReflectedGridRow source = reflected[i];
+                if (i == 0 && source.Bound != null)
                 {
-                    cadCount++;
-                    result.Add(item);
+                    AddinLog.Info("首行绑定对象 " + ReflectionValue.DescribeObject(source.Bound, 32));
+                }
+
+                string number = Cell(source, "编号", "文档编号", "代号", "编码", "Code", "Number");
+                string name = Cell(source, "名称", "文档名称", "文件名", "Name", "FileName");
+                string path = Cell(source, "路径", "文件夹", "目录", "位置", "Path", "Folder");
+                string type = Cell(source, "类型", "文档类型", "对象类型", "Type", "DocType");
+                FillFromBound(ref number, ref name, ref path, ref type, source.Bound);
+                rows.Add(new CadPermissionRow
+                {
+                    Number = number,
+                    Name = string.IsNullOrWhiteSpace(name) ? number : name,
+                    FolderPath = path,
+                    DocType = type,
+                    DataBoundItem = source.Bound,
+                    NativeView = source,
+                    SourceOpField = source.OperationField,
+                    OperationValue = source.OperationValue,
+                    OperationItems = source.OperationItems,
+                    OperationIsCombo = source.OperationIsCombo,
+                    SourceRowIndex = source.Index,
+                    SourceOpColumn = -1
+                });
+            }
+
+            return rows;
+        }
+
+        private static List<CadPermissionRow> ReadFromList(IList boundList)
+        {
+            var rows = new List<CadPermissionRow>();
+            for (int i = 0; i < boundList.Count; i++)
+            {
+                object bound = boundList[i];
+                if (i == 0 && bound != null)
+                {
+                    AddinLog.Info("首行绑定对象 " + ReflectionValue.DescribeObject(bound, 32));
+                }
+
+                string number = string.Empty;
+                string name = string.Empty;
+                string path = string.Empty;
+                string type = string.Empty;
+                FillFromBound(ref number, ref name, ref path, ref type, bound);
+                rows.Add(new CadPermissionRow
+                {
+                    Number = number,
+                    Name = string.IsNullOrWhiteSpace(name) ? number : name,
+                    FolderPath = path,
+                    DocType = type,
+                    DataBoundItem = bound,
+                    SourceRowIndex = i,
+                    SourceOpColumn = -1,
+                    OperationValue = ReflectionValue.Get(bound, "Operation", "Action", "HandleType", "操作")
+                });
+            }
+
+            return rows;
+        }
+
+        private static void FillFromBound(ref string number, ref string name, ref string path, ref string type, object bound)
+        {
+            if (bound == null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(number))
+            {
+                number = ReflectionValue.GetString(bound,
+                    "Number", "DocNumber", "DocumentNumber", "Code", "ItemCode",
+                    "PartNumber", "ObjectNumber", "DocNo", "编号", "文档编号", "Id", "Symbol");
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                name = ReflectionValue.GetString(bound,
+                    "Name", "DocName", "DocumentName", "FileName", "DisplayName",
+                    "名称", "文档名称", "文件名");
+            }
+
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = ReflectionValue.GetString(bound,
+                    "FolderPath", "FullPath", "Path", "FolderFullPath", "ParentPath",
+                    "ContainerPath", "Directory", "文件夹", "路径", "全路径");
+            }
+
+            if (string.IsNullOrWhiteSpace(type))
+            {
+                type = ReflectionValue.GetString(bound,
+                    "Type", "DocType", "DocumentType", "FileType", "CadType", "ObjectType",
+                    "ClassName", "类型", "文档类型");
+            }
+        }
+
+        private static List<CadPermissionRow> FilterCad(List<CadPermissionRow> all)
+        {
+            bool hasType = false;
+            var cad = new List<CadPermissionRow>();
+            foreach (CadPermissionRow row in all)
+            {
+                if (!string.IsNullOrWhiteSpace(row.DocType))
+                {
+                    hasType = true;
+                }
+
+                if (IsCadRow(row.Name, row.Number, row.DataBoundItem, row.DocType))
+                {
+                    cad.Add(row);
                 }
             }
 
-            if (result.Count == 0 && allRows.Count > 0)
+            if (cad.Count > 0)
             {
-                AddinLog.Info("未按扩展名识别到 CAD，展示全部冲突行 " + allRows.Count);
-                result.AddRange(allRows);
+                return cad;
             }
 
-            AddinLog.Info("冲突行=" + grid.Rows.Count + " CAD行=" + cadCount + " 展示=" + result.Count);
-            return result;
+            if (hasType)
+            {
+                AddinLog.Info("类型列存在但没有 CAD 文档");
+                return cad;
+            }
+
+            AddinLog.Info("未按扩展名/类型识别到 CAD，展示全部冲突行 " + all.Count);
+            return all;
+        }
+
+        private static string Cell(ReflectedGridRow row, params string[] hints)
+        {
+            foreach (string hint in hints)
+            {
+                foreach (KeyValuePair<string, object> pair in row.Cells)
+                {
+                    if (pair.Key.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return pair.Value == null ? string.Empty : Convert.ToString(pair.Value);
+                    }
+                }
+            }
+
+            return string.Empty;
         }
 
         private static void FillOperation(CadPermissionRow item, DataGridViewRow row, int opCol)
@@ -147,17 +310,27 @@ namespace SwCheckinConflictButtonAddin
                     }
                 }
 
+                if (items.Count == 0 && combo.DataSource is IEnumerable source)
+                {
+                    foreach (object entry in source)
+                    {
+                        items.Add(entry);
+                    }
+                }
+
                 item.OperationItems = items.ToArray();
             }
         }
 
-        private static bool IsCadRow(string name, string number, object bound)
+        private static bool IsCadRow(string name, string number, object bound, string type)
         {
-            string type = bound == null
-                ? string.Empty
-                : ReflectionValue.GetString(bound,
+            string blob = (name ?? "") + " " + (number ?? "") + " " + (type ?? "");
+            if (bound != null)
+            {
+                blob += " " + ReflectionValue.GetString(bound,
                     "Type", "DocType", "DocumentType", "FileType", "CadType", "ObjectType", "类型");
-            string blob = (name ?? "") + " " + (number ?? "") + " " + type;
+            }
+
             string lower = blob.ToLowerInvariant();
             foreach (string ext in CadExtensions)
             {
@@ -167,18 +340,16 @@ namespace SwCheckinConflictButtonAddin
                 }
             }
 
-            if (blob.IndexOf("零件", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("装配", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("工程图", StringComparison.Ordinal) >= 0
-                || blob.IndexOf("SolidWorks", StringComparison.OrdinalIgnoreCase) >= 0
-                || blob.IndexOf("CAD", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (ContainsCadKeyword(blob))
             {
                 return true;
             }
 
             string fileName = bound == null
                 ? name
-                : ReflectionValue.GetString(bound, "FileName", "FilePath", "LocalPath", "文件名");
+                : FirstNonEmpty(
+                    ReflectionValue.GetString(bound, "FileName", "FilePath", "LocalPath", "文件名"),
+                    name);
             if (!string.IsNullOrEmpty(fileName))
             {
                 string ext = Path.GetExtension(fileName);
@@ -195,6 +366,20 @@ namespace SwCheckinConflictButtonAddin
             }
 
             return false;
+        }
+
+        private static bool ContainsCadKeyword(string blob)
+        {
+            return blob.IndexOf("零件", StringComparison.Ordinal) >= 0
+                || blob.IndexOf("装配", StringComparison.Ordinal) >= 0
+                || blob.IndexOf("工程图", StringComparison.Ordinal) >= 0
+                || blob.IndexOf("CAD文档", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("CadDocument", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("EPMDocument", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("SolidWorks", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("SLDPRT", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("SLDASM", StringComparison.OrdinalIgnoreCase) >= 0
+                || blob.IndexOf("SLDDRW", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static DataGridView FindBestGrid(Control root)
@@ -301,6 +486,19 @@ namespace SwCheckinConflictButtonAddin
             {
                 DumpChildren(child, depth + 1);
             }
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (string value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+
+            return string.Empty;
         }
     }
 }

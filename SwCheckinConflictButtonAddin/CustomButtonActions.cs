@@ -36,7 +36,7 @@ namespace SwCheckinConflictButtonAddin
                 {
                     MessageBox.Show(
                         hostForm,
-                        "没有识别到冲突列表中的 CAD 文档。\n可查看 %TEMP%\\SwCheckinConflictButtonAddin.log 中的表格列信息。",
+                        "没有识别到冲突列表中的 CAD 文档。\n可查看 %TEMP%\\SwCheckinConflictButtonAddin.log 中的表格列、绑定对象和权限服务信息。",
                         AddinOptions.ButtonText,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);

@@ -15,7 +15,7 @@ namespace SwCheckinConflictButtonAddin
         {
             _rows = rows ?? new List<CadPermissionRow>();
             Text = "CAD冲突文档权限";
-            Width = 1280;
+            Width = 1360;
             Height = 560;
             StartPosition = FormStartPosition.CenterScreen;
             MinimizeBox = false;
@@ -48,11 +48,18 @@ namespace SwCheckinConflictButtonAddin
         {
             _grid.Columns.Add(TextCol("Number", "CAD文档编号", true));
             _grid.Columns.Add(TextCol("Name", "CAD文档名称", true));
-            _grid.Columns.Add(TextCol("FolderPath", "CAD文档所属文件夹", true));
+            _grid.Columns.Add(TextCol("FolderPath", "CAD文档所属文件夹(带全路径)", true));
             _grid.Columns.Add(TextCol("DocRead", "CAD文档读取权限", true));
             _grid.Columns.Add(TextCol("DocModify", "CAD文档修改权限", true));
-            _grid.Columns.Add(TextCol("FolderRead", "所属文件夹读取权限", true));
-            _grid.Columns.Add(TextCol("FolderModify", "所属文件夹修改权限", true));
+            _grid.Columns.Add(TextCol("FolderRead", "CAD文档所属文件夹的读取权限", true));
+            _grid.Columns.Add(TextCol("FolderModify", "CAD文档所属文件夹的修改权限", true));
+
+            DataGridViewColumn operation = TryCloneSourceOperationColumn();
+            if (operation != null)
+            {
+                _grid.Columns.Add(operation);
+                return;
+            }
 
             bool combo = false;
             object[] items = null;
@@ -91,6 +98,35 @@ namespace SwCheckinConflictButtonAddin
                     UseColumnTextForButtonValue = false
                 });
             }
+        }
+
+        private DataGridViewColumn TryCloneSourceOperationColumn()
+        {
+            foreach (CadPermissionRow row in _rows)
+            {
+                if (row.SourceGrid == null || row.SourceOpColumn < 0
+                    || row.SourceOpColumn >= row.SourceGrid.Columns.Count)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    DataGridViewColumn source = row.SourceGrid.Columns[row.SourceOpColumn];
+                    DataGridViewColumn clone = (DataGridViewColumn)source.Clone();
+                    clone.Name = "Operation";
+                    clone.HeaderText = "操作";
+                    clone.ReadOnly = source.ReadOnly;
+                    return clone;
+                }
+                catch (Exception ex)
+                {
+                    AddinLog.Info("克隆操作列失败: " + ex.Message);
+                    return null;
+                }
+            }
+
+            return null;
         }
 
         private static DataGridViewTextBoxColumn TextCol(string name, string header, bool readOnly)
@@ -179,7 +215,26 @@ namespace SwCheckinConflictButtonAddin
         private static void Replay(DataGridViewRow viewRow, object value, bool buttonClick)
         {
             var item = viewRow.Tag as CadPermissionRow;
-            if (item == null || item.SourceGrid == null || item.SourceOpColumn < 0)
+            if (item == null)
+            {
+                return;
+            }
+
+            if (item.NativeView is ReflectedGridRow reflected)
+            {
+                try
+                {
+                    ReflectedGridReader.SetOperation(reflected, value);
+                }
+                catch (Exception ex)
+                {
+                    ShowReplayError(ex);
+                }
+
+                return;
+            }
+
+            if (item.SourceGrid == null || item.SourceOpColumn < 0)
             {
                 return;
             }
@@ -195,7 +250,7 @@ namespace SwCheckinConflictButtonAddin
                 DataGridViewCell cell = grid.Rows[item.SourceRowIndex].Cells[item.SourceOpColumn];
                 if (buttonClick || cell is DataGridViewButtonCell)
                 {
-                    RaiseCellContentClick(grid, item.SourceOpColumn, item.SourceRowIndex);
+                    RaiseGridEvent(grid, "OnCellContentClick", item.SourceOpColumn, item.SourceRowIndex);
                 }
                 else
                 {
@@ -203,21 +258,27 @@ namespace SwCheckinConflictButtonAddin
                     grid.NotifyCurrentCellDirty(true);
                     grid.CommitEdit(DataGridViewDataErrorContexts.Commit);
                     grid.EndEdit();
+                    RaiseGridEvent(grid, "OnCellValueChanged", item.SourceOpColumn, item.SourceRowIndex);
                 }
             }
             catch (Exception ex)
             {
-                AddinLog.Info("回写冲突界面操作失败: " + ex);
-                MessageBox.Show("回写冲突界面操作失败: " + ex.Message, "CAD冲突文档权限",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                ShowReplayError(ex);
             }
         }
 
-        private static void RaiseCellContentClick(DataGridView grid, int column, int row)
+        private static void ShowReplayError(Exception ex)
+        {
+            AddinLog.Info("回写冲突界面操作失败: " + ex);
+            MessageBox.Show("回写冲突界面操作失败: " + ex.Message, "CAD冲突文档权限",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private static void RaiseGridEvent(DataGridView grid, string methodName, int column, int row)
         {
             grid.CurrentCell = grid.Rows[row].Cells[column];
             MethodInfo method = typeof(DataGridView).GetMethod(
-                "OnCellContentClick",
+                methodName,
                 BindingFlags.Instance | BindingFlags.NonPublic);
             if (method != null)
             {
