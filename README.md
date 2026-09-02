@@ -57,11 +57,11 @@ public static void OnClick(IntPtr targetWindow)
 
 点击 **自定义** 会读取冲突表上的文档编号/名称/操作列，再用 TS 进程里的服务器地址和登录 Token，由插件自己调用后端：
 
-- `getCADDocListByOIDS`：按冲突行上的 CAD OID 取文档、所属文件夹、容器（产品库/项目库）
-- `getFolderPathByFolderId`：文件夹全路径（CAD 上没有路径时）
+- `getCADDocListByOIDS`：按冲突行上的 CAD OID 取文档、所属文件夹、**folderPath（文件夹全路径）**、容器（产品库/项目库）
+- `getFolderPathByFolderId`：仅当 CAD 未返回 folderPath 时补全路径
 - `checkAccessByObjectId`：文档和文件夹的读取/修改权限
 
-弹出权限窗口（AntdUI 风格）。操作列选项与冲突界面一致，点确认后只回写操作单元格（不调用 TS 私有方法）。界面库 **AntdUI 2.4.8**（Apache-2.0），安装目录会带 `AntdUI.dll` 和 `THIRD_PARTY_NOTICES.txt`。注入到冲突窗上的按钮仍是原生 WinForms Button。
+先弹出权限窗口（HandyControl / WPF），窗口内用 loading 遮罩加载会话与权限；操作列下拉与冲突界面一致，点确认后只回写操作单元格（不调用 TS 私有方法）。界面库 **HandyControl 3.5.1**（MIT），安装目录会带 `HandyControl.dll` 和 `THIRD_PARTY_NOTICES.txt`。注入到冲突窗上的按钮仍是原生 WinForms Button。
 
 不依赖冲突窗的 `RowData` / `CNetFileInfo` 等内部类型。日志：`%TEMP%\SwCheckinConflictButtonAddin.log`。
 

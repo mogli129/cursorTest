@@ -29,6 +29,7 @@ namespace SwCheckinConflictButtonAddin
             AddinLog.Info(
                 "SwAddin ctor bits=" + (IntPtr.Size * 8)
                 + " dll=" + typeof(SwAddin).Assembly.Location);
+            WpfApp.RegisterAssemblyResolve();
         }
 
         public bool ConnectToSW(object ThisSW, int Cookie)
@@ -36,7 +37,7 @@ namespace SwCheckinConflictButtonAddin
             try
             {
                 AddinLog.Info("ConnectToSW begin cookie=" + Cookie);
-                AntdUiApp.Ensure();
+                WpfApp.RegisterAssemblyResolve();
                 _swApp = ThisSW as ISldWorks;
                 if (_swApp == null)
                 {

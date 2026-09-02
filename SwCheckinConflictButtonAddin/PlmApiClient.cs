@@ -107,7 +107,19 @@ namespace SwCheckinConflictButtonAddin
                 }
             }
 
-            AddinLog.Info("getCADDocListByOIDS 请求=" + unique.Count + " 返回=" + result.Count);
+            int withPath = 0;
+            foreach (PlmCadDoc d in result)
+            {
+                if (!string.IsNullOrWhiteSpace(d.FolderPath))
+                {
+                    withPath++;
+                }
+            }
+
+            AddinLog.Info("getCADDocListByOIDS 请求=" + unique.Count
+                + " 返回=" + result.Count
+                + " 含folderPath=" + withPath
+                + (result.Count > 0 ? " 样例=" + result[0].FolderPath : ""));
             return result;
         }
 
@@ -271,8 +283,15 @@ namespace SwCheckinConflictButtonAddin
             row.Number = FirstNonEmpty(doc.Number, row.Number);
             row.Name = FirstNonEmpty(doc.Name, doc.FileName, row.Name);
 
-            string path = doc.FolderPath;
-            if (string.IsNullOrWhiteSpace(path) && !string.IsNullOrWhiteSpace(doc.FolderOid))
+            // CadDocVO.folderPath 已是 CAD 文档文件夹全路径，直接展示，不再拼「产品库/项目库」。
+            if (!string.IsNullOrWhiteSpace(doc.FolderPath))
+            {
+                row.FolderPath = doc.FolderPath.Trim();
+                return;
+            }
+
+            string path = string.Empty;
+            if (!string.IsNullOrWhiteSpace(doc.FolderOid))
             {
                 string key = doc.FolderOid + "|" + row.FolderOtype;
                 if (!pathCache.TryGetValue(key, out path))
@@ -390,9 +409,7 @@ namespace SwCheckinConflictButtonAddin
                 return null;
             }
 
-            string number = FirstNonEmpty(
-                JsonUtil.GetString(map, "objnumber", "code", "number", "docNumber", "docnumber"),
-                string.Empty);
+            string number = JsonUtil.GetString(map, "code");
             string folderOid = JsonUtil.GetString(map, "folderId", "folderOid", "subfolderOid", "locationID", "locationId");
             return new PlmCadDoc
             {
@@ -403,7 +420,7 @@ namespace SwCheckinConflictButtonAddin
                 DocOtype = FirstNonEmpty(JsonUtil.GetString(map, "otype", "docOtype"), CadOtype),
                 FolderOid = folderOid,
                 FolderOtype = JsonUtil.GetString(map, "subfolderOtype", "folderOtype"),
-                FolderPath = JsonUtil.GetString(map, "folderPath", "fullPath", "path", "location"),
+                FolderPath = JsonUtil.GetString(map, "folderPath"),
                 ContainerType = JsonUtil.GetString(map, "containerType", "containerOtype"),
                 ContainerName = JsonUtil.GetString(map, "containerName"),
                 CabinetOid = JsonUtil.GetString(map, "cabinetOid"),

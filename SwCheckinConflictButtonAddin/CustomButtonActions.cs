@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
 using System.Windows.Forms;
 
 namespace SwCheckinConflictButtonAddin
@@ -24,7 +23,13 @@ namespace SwCheckinConflictButtonAddin
 
             if (hostForm == null || hostForm.IsDisposed)
             {
-                AntdUiApp.Alert(null, AddinOptions.ButtonText, "无法获取冲突窗口，请重试。", AntdUI.TType.Warn);
+                Alert(null, "无法获取冲突窗口，请重试。", MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (hostForm.InvokeRequired)
+            {
+                hostForm.BeginInvoke(new Action(() => OnClick(targetWindow)));
                 return;
             }
 
@@ -33,126 +38,48 @@ namespace SwCheckinConflictButtonAddin
                 List<CadPermissionRow> rows = ConflictFormReader.ReadCadRows(hostForm);
                 if (rows.Count == 0)
                 {
-                    AntdUiApp.Alert(hostForm, AddinOptions.ButtonText,
+                    Alert(hostForm,
                         "没有识别到冲突列表中的 CAD 文档。\n可查看 %TEMP%\\SwCheckinConflictButtonAddin.log。",
-                        AntdUI.TType.Info);
+                        MessageBoxIcon.Information);
                     return;
                 }
 
-                Exception error = null;
-                using (var progress = new WorkProgressForm())
-                {
-                    progress.Shown += (s, e) =>
-                    {
-                        ThreadPool.QueueUserWorkItem(_ =>
-                        {
-                            try
-                            {
-                                Report(progress, "正在读取 TeamSpace 登录信息…", 0, 0);
-                                TsSession session = TsSessionLocator.Resolve(hostForm);
-                                if (!session.IsUsable)
-                                {
-                                    throw new InvalidOperationException(
-                                        "未能从 TeamSpace 取到服务器地址、登录 Token 或用户 OID。请确认已登录 TS 后再试。");
-                                }
-
-                                new PlmApiClient(session).Fill(rows, (message, current, maximum) =>
-                                    Report(progress, message, current, maximum));
-                            }
-                            catch (Exception ex)
-                            {
-                                error = ex;
-                                AddinLog.Info("加载权限数据失败: " + ex);
-                            }
-                            finally
-                            {
-                                CloseProgress(progress);
-                            }
-                        });
-                    };
-                    progress.ShowDialog(hostForm);
-                }
-
-                if (error != null)
-                {
-                    AntdUiApp.Alert(hostForm, AddinOptions.ButtonText,
-                        "打开权限界面失败: " + error.Message, AntdUI.TType.Error);
-                    return;
-                }
-
-                using (var dialog = new CadPermissionForm(rows))
-                {
-                    dialog.ShowDialog(hostForm);
-                }
+                WpfApp.Ensure();
+                var dialog = new CadPermissionWindow(hostForm, rows);
+                dialog.ShowDialog();
             }
             catch (Exception ex)
             {
                 AddinLog.Info("自定义按钮异常: " + ex);
-                AntdUiApp.Alert(hostForm, AddinOptions.ButtonText,
-                    "打开权限界面失败: " + ex.Message, AntdUI.TType.Error);
+                Alert(hostForm, "打开权限界面失败: " + Flatten(ex), MessageBoxIcon.Error);
             }
         }
 
-        private static void Report(WorkProgressForm progress, string message, int current, int maximum)
+        private static void Alert(IWin32Window owner, string text, MessageBoxIcon icon)
         {
-            if (progress == null || progress.IsDisposed)
+            if (owner != null)
             {
-                return;
+                MessageBox.Show(owner, text, AddinOptions.ButtonText, MessageBoxButtons.OK, icon);
             }
-
-            Action update = () =>
+            else
             {
-                if (!progress.IsDisposed)
-                {
-                    progress.UpdateProgress(message, current, maximum);
-                }
-            };
-
-            try
-            {
-                if (progress.IsHandleCreated && progress.InvokeRequired)
-                {
-                    progress.BeginInvoke(update);
-                }
-                else
-                {
-                    update();
-                }
-            }
-            catch
-            {
+                MessageBox.Show(text, AddinOptions.ButtonText, MessageBoxButtons.OK, icon);
             }
         }
 
-        private static void CloseProgress(WorkProgressForm progress)
+        private static string Flatten(Exception ex)
         {
-            if (progress == null || progress.IsDisposed)
+            if (ex == null)
             {
-                return;
+                return string.Empty;
             }
 
-            Action close = () =>
+            if (ex.InnerException == null)
             {
-                if (!progress.IsDisposed)
-                {
-                    progress.Close();
-                }
-            };
+                return ex.Message;
+            }
 
-            try
-            {
-                if (progress.IsHandleCreated && progress.InvokeRequired)
-                {
-                    progress.BeginInvoke(close);
-                }
-                else
-                {
-                    close();
-                }
-            }
-            catch
-            {
-            }
+            return ex.Message + " " + Flatten(ex.InnerException);
         }
     }
 }

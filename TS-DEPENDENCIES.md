@@ -145,7 +145,7 @@ TS 的 `GetInterfaceUrl` 会按 `serviceUrlMap` 改写最后一段 path。插件
 
 ### 7.3 CAD 响应字段（`CadDocVO`）
 
-解析名（任一即可）：`objnumber`/`code`，`name`/`docName`，`fileName`/`dlgname`，`docId`/`oid`，`otype`，`folderId`/`folderOid`，`subfolderOtype`，`folderPath`，`containerType`/`containerOtype`，`containerName`，`cabinetOid`/`cabinetOtype`。
+解析名：编码用 **`code`（不用 `objnumber`）**；另有 `name`/`docName`，`fileName`/`dlgname`，`docId`/`oid`，`otype`，`folderId`/`folderOid`，`subfolderOtype`，**`folderPath`（优先作为文件夹全路径，不再二次拼接域）**，`containerType`/`containerOtype`，`containerName`，`cabinetOid`/`cabinetOtype`。
 
 ### 7.4 权限响应（`AccessBatchDTO`）
 
@@ -204,4 +204,4 @@ TS 的 `GetInterfaceUrl` 会按 `serviceUrlMap` 改写最后一段 path。插件
 | `TsSession.cs` | TS 会话反射 |
 | `PlmHttpClient.cs` | HTTP 头 |
 | `PlmApiClient.cs` | 三个后端接口、otype、权限名、VO 字段 |
-| `CadPermissionForm.cs` | 操作文案匹配、`SetRowOpValue` 回写 |
+| `CadPermissionWindow.xaml.cs` | 操作文案匹配、回写冲突表操作单元格 |
