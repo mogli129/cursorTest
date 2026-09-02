@@ -55,11 +55,20 @@ public static void OnClick(IntPtr targetWindow)
 
 改按钮文字、大小：编辑 `AddinOptions.cs`。
 
-点击 **自定义** 会读取当前冲突界面上的文档列表，筛出 CAD 文档，判断文档及所属域（产品库/项目库）文件夹的读取/修改权限，弹出「CAD冲突文档权限」窗口。列：CAD文档编号、名称、所属文件夹(带全路径)、文档读取/修改权限、所属文件夹读取/修改权限、操作（与冲突界面一致，变更会回写）。
+点击 **自定义** 会读取冲突表上的文档编号/名称/操作列，再用 TS 进程里的服务器地址和登录 Token，由插件自己调用后端：
 
-权限优先从行绑定对象、文件夹对象和已加载的 PDM 权限服务反射。本仓库拿不到 `H:\code\ai\TS2024` 与 `H:\code\gitlabv11\5.1230`，若权限显示「未知」，把 `%TEMP%\SwCheckinConflictButtonAddin.log` 里的窗体类型、表格列、`首行绑定对象`、权限服务扫描结果发回即可对接真实 API。
+- `getCADDocListByOIDS`：按冲突行上的 CAD OID 取文档、所属文件夹、容器（产品库/项目库）
+- `getFolderPathByFolderId`：文件夹全路径（CAD 上没有路径时）
+- `checkAccessByObjectId`：文档和文件夹的读取/修改权限
 
-## 原理
+弹出权限窗口（AntdUI 风格）。操作列选项与冲突界面一致，点确认后只回写操作单元格（不调用 TS 私有方法）。界面库 **AntdUI 2.4.8**（Apache-2.0），安装目录会带 `AntdUI.dll` 和 `THIRD_PARTY_NOTICES.txt`。注入到冲突窗上的按钮仍是原生 WinForms Button。
+
+不依赖冲突窗的 `RowData` / `CNetFileInfo` 等内部类型。日志：`%TEMP%\SwCheckinConflictButtonAddin.log`。
+
+## TeamSpace 升级审阅
+
+插件不引用 TS DLL，但运行时依赖冲突窗标题/表格、会话反射和若干 PLM 接口。完整清单见 **[TS-DEPENDENCIES.md](TS-DEPENDENCIES.md)**。TS 发版前按该文档第 9 节清单过一遍。
+
 
 插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
 

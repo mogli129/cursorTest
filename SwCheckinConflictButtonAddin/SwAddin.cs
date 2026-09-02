@@ -36,6 +36,7 @@ namespace SwCheckinConflictButtonAddin
             try
             {
                 AddinLog.Info("ConnectToSW begin cookie=" + Cookie);
+                AntdUiApp.Ensure();
                 _swApp = ThisSW as ISldWorks;
                 if (_swApp == null)
                 {

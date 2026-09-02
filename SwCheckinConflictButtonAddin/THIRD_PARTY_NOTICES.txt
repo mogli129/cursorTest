@@ -1,0 +1,13 @@
+Third-party notices
+===================
+
+AntdUI 2.4.8
+Copyright © Tom 2024-2030
+License: Apache License 2.0
+https://github.com/AntdUI/AntdUI
+https://www.nuget.org/packages/AntdUI
+http://www.apache.org/licenses/LICENSE-2.0
+
+This product redistributes AntdUI.dll. A copy of the Apache License 2.0
+is available at the URL above. Trademarks of AntdUI / Ant Design are not
+granted for use as this product's name.
