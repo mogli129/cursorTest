@@ -1,9 +1,10 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Win32;
-using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swpublished;
 
 namespace SwCheckinConflictButtonAddin
@@ -20,7 +21,6 @@ namespace SwCheckinConflictButtonAddin
         private const string AddinKeyTemplate = @"SOFTWARE\SolidWorks\Addins\{{{0}}}";
         private const string StartupKeyTemplate = @"Software\SolidWorks\AddInsStartup\{{{0}}}";
 
-        private ISldWorks _swApp;
         private ConflictWindowWatcher _watcher;
         private Timer _deferredStart;
 
@@ -38,11 +38,7 @@ namespace SwCheckinConflictButtonAddin
             {
                 AddinLog.Info("ConnectToSW begin cookie=" + Cookie);
                 WpfApp.RegisterAssemblyResolve();
-                _swApp = ThisSW as ISldWorks;
-                if (_swApp == null)
-                {
-                    AddinLog.Info("ISldWorks 转换失败，仍继续加载");
-                }
+                LogSolidWorksVersion(ThisSW);
 
                 _deferredStart = new Timer { Interval = 1500 };
                 _deferredStart.Tick += OnDeferredStart;
@@ -75,12 +71,6 @@ namespace SwCheckinConflictButtonAddin
                 {
                     _watcher.Dispose();
                     _watcher = null;
-                }
-
-                if (_swApp != null)
-                {
-                    Marshal.ReleaseComObject(_swApp);
-                    _swApp = null;
                 }
             }
             catch (Exception ex)
@@ -117,6 +107,44 @@ namespace SwCheckinConflictButtonAddin
             catch (Exception ex)
             {
                 AddinLog.Info("启动窗口监视失败（插件仍保持加载）: " + ex);
+            }
+        }
+
+        /// <summary>
+        /// 用 IDispatch 读 RevisionNumber，避免绑定某一年份的 ISldWorks。
+        /// 主版本：26=2018 … 33=2025。
+        /// </summary>
+        private static void LogSolidWorksVersion(object thisSw)
+        {
+            if (thisSw == null)
+            {
+                AddinLog.Info("ConnectToSW ThisSW 为空");
+                return;
+            }
+
+            try
+            {
+                object raw = thisSw.GetType().InvokeMember(
+                    "RevisionNumber",
+                    BindingFlags.GetProperty | BindingFlags.InvokeMethod
+                    | BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase,
+                    null,
+                    thisSw,
+                    null);
+                string text = Convert.ToString(raw, CultureInfo.InvariantCulture) ?? string.Empty;
+                int major = 0;
+                int dot = text.IndexOf('.');
+                string head = dot >= 0 ? text.Substring(0, dot) : text;
+                int.TryParse(head, NumberStyles.Integer, CultureInfo.InvariantCulture, out major);
+                string year = major >= 26 && major <= 33
+                    ? (1992 + major).ToString(CultureInfo.InvariantCulture)
+                    : "未知";
+                AddinLog.Info("SOLIDWORKS RevisionNumber=" + text + " 对应年份=" + year
+                    + (major >= 26 && major <= 33 ? "（已覆盖 2018-2025）" : "（未在 2018-2025 范围内，仍尝试加载）"));
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("读取 SOLIDWORKS 版本失败，仍继续加载: " + ex.Message);
             }
         }
 

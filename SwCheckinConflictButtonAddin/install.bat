@@ -34,7 +34,7 @@ if errorlevel 1 (
 
 echo.
 echo Register OK.
-echo 1. Exit SOLIDWORKS 2022 completely
+echo 1. Exit SOLIDWORKS completely (2018-2025)
 echo 2. Start SOLIDWORKS again
 echo 3. Tools - Add-Ins - enable: Check-in conflict button
 echo Log: %TEMP%\SwCheckinConflictButtonAddin.log

@@ -1,4 +1,4 @@
-# 检入冲突窗口按钮（SOLIDWORKS 2022 插件）
+# 检入冲突窗口按钮（SOLIDWORKS 2018–2025 插件）
 
 在对方插件弹出 **「检入文档冲突处理」** 窗口时，通过 `Control.FromHandle` 拿到该 `Form`，把自定义按钮加进 `Controls`，锚在客户区右上角。若拿不到 `Form`，再退回标题栏 overlay。
 
@@ -9,13 +9,15 @@
 
 ## 环境
 
-- SOLIDWORKS 2022（64 位）
-- Visual Studio 2019/2022，.NET Framework 4.8 开发包
+- SOLIDWORKS **2018–2025**（64 位）。一份 DLL 注册后，本机安装的各年份 SW 都会在「工具 → 插件」里看到它
+- 本机需安装 **.NET Framework 4.6.2 或更高**（SW 2018 安装包会带 4.6.2；Win10/11 自带的 4.8 也可运行）
+- Visual Studio 2019/2022，.NET Framework 4.6.2 开发包
 - 管理员权限（COM 注册需要）
+- 冲突处理功能还依赖 **同进程的 TeamSpace** 冲突窗与会话；TS 若与当前基线不兼容，插件能加载但按钮可能无效（见 [TS-DEPENDENCIES.md](TS-DEPENDENCIES.md)）
 
 ## 编译
 
-用 VS 打开 `SwCheckinConflictButtonAddin.sln`，配置选 **Release**，平台为 **x64**，生成。首次编译会从 NuGet 还原 SolidWorks Interop，**不需要**本机 `api\redist` 路径。
+用 VS 打开 `SwCheckinConflictButtonAddin.sln`，配置选 **Release**，平台为 **x64**，生成。首次编译会从 NuGet 还原 HandyControl 和 `swpublished`（只用于 `ISwAddin`，嵌入程序集，不需要本机 `api\redist`）。
 
 输出：`SwCheckinConflictButtonAddin\bin\Release\SwCheckinConflictButtonAddin.dll`
 
@@ -24,7 +26,7 @@
 1. **完全退出 SOLIDWORKS**（任务栏托盘里也不能留）
 2. 右键 `SwCheckinConflictButtonAddin\install.bat` → **以管理员身份运行**
 3. 脚本会把 DLL 复制到 `%ProgramData%\SwCheckinConflictButtonAddin` 再注册（不要直接从 `H:` 盘注册，映射盘上 COM 经常加载失败）
-4. 启动 SW 2022
+4. 启动 SOLIDWORKS 2018–2025 中的任一版本
 5. `工具` → `插件`，勾选 **检入冲突窗口按钮**，并勾选左侧「启动时加载」
 
 卸载用 `uninstall.bat`（同样要管理员），然后重启 SW。
@@ -70,7 +72,7 @@ public static void OnClick(IntPtr targetWindow)
 插件不引用 TS DLL，但运行时依赖冲突窗标题/表格、会话反射和若干 PLM 接口。完整清单见 **[TS-DEPENDENCIES.md](TS-DEPENDENCIES.md)**。TS 发版前按该文档第 9 节清单过一遍。
 
 
-插件以 `ISwAddin` 加载进 `SLDWORKS.exe`。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
+插件以稳定的 `ISwAddin` 加载进 `SLDWORKS.exe`（不绑定某一年份的 `ISldWorks` Interop）。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
 
 ## 日志
 

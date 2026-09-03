@@ -384,10 +384,13 @@
                         <DataGridTextColumn Header="序号" Binding="{Binding Seq}" Width="64" IsReadOnly="True"
                                             HeaderStyle="{StaticResource ElColumnHeaderCenter}"
                                             CellStyle="{StaticResource ElDataGridCellCenter}"/>
-                        <DataGridTextColumn Header="编号" Binding="{Binding DocNumber}" Width="128" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="名称" Binding="{Binding DocName}" Width="148" IsReadOnly="True"/>
-                        <DataGridTextColumn Header="文件夹" Binding="{Binding FolderFullPath}" Width="*" MinWidth="180" IsReadOnly="True"/>
-                        <DataGridTemplateColumn Header="文档读取权限" Width="128" SortMemberPath="DocRead" CanUserSort="True"
+                        <DataGridTextColumn Header="编号" Binding="{Binding DocNumber}" Width="160" IsReadOnly="True"/>
+                        <DataGridTextColumn Header="名称" Binding="{Binding DocName}" Width="180" IsReadOnly="True"/>
+                        <DataGridTextColumn x:Name="ColFolder" Header="文件夹" Binding="{Binding FolderFullPath}"
+                                            Width="*" MinWidth="20" IsReadOnly="True"/>
+                        <DataGridTemplateColumn x:Name="ColDocRead" Header="文档读取权限"
+                                                Width="SizeToHeader" MinWidth="64" CanUserResize="True"
+                                                SortMemberPath="DocRead" CanUserSort="True"
                                                 HeaderStyle="{StaticResource ElColumnHeaderCenter}"
                                                 CellStyle="{StaticResource ElDataGridCellCenter}">
                             <DataGridTemplateColumn.CellTemplate>
@@ -396,7 +399,9 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="文档修改权限" Width="128" SortMemberPath="DocModify" CanUserSort="True"
+                        <DataGridTemplateColumn x:Name="ColDocModify" Header="文档修改权限"
+                                                Width="SizeToHeader" MinWidth="64" CanUserResize="True"
+                                                SortMemberPath="DocModify" CanUserSort="True"
                                                 HeaderStyle="{StaticResource ElColumnHeaderCenter}"
                                                 CellStyle="{StaticResource ElDataGridCellCenter}">
                             <DataGridTemplateColumn.CellTemplate>
@@ -405,7 +410,9 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="文件夹读取权限" Width="140" SortMemberPath="FolderRead" CanUserSort="True"
+                        <DataGridTemplateColumn x:Name="ColFolderRead" Header="文件夹读取权限"
+                                                Width="SizeToHeader" MinWidth="64" CanUserResize="True"
+                                                SortMemberPath="FolderRead" CanUserSort="True"
                                                 HeaderStyle="{StaticResource ElColumnHeaderCenter}"
                                                 CellStyle="{StaticResource ElDataGridCellCenter}">
                             <DataGridTemplateColumn.CellTemplate>
@@ -414,7 +421,9 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="文件夹修改权限" Width="140" SortMemberPath="FolderModify" CanUserSort="True"
+                        <DataGridTemplateColumn x:Name="ColFolderModify" Header="文件夹修改权限"
+                                                Width="SizeToHeader" MinWidth="64" CanUserResize="True"
+                                                SortMemberPath="FolderModify" CanUserSort="True"
                                                 HeaderStyle="{StaticResource ElColumnHeaderCenter}"
                                                 CellStyle="{StaticResource ElDataGridCellCenter}">
                             <DataGridTemplateColumn.CellTemplate>
@@ -423,7 +432,9 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="操作" Width="360" MinWidth="280" IsReadOnly="True"
+                        <DataGridTemplateColumn x:Name="ColOperation" Header="操作"
+                                                Width="SizeToHeader" MinWidth="80" CanUserResize="True"
+                                                IsReadOnly="True"
                                                 SortMemberPath="Operation" CanUserSort="True"
                                                 CellStyle="{StaticResource ElDataGridCellOp}">
                             <DataGridTemplateColumn.CellTemplate>

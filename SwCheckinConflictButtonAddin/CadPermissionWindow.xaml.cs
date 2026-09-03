@@ -2,12 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using System.Windows.Forms;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
@@ -32,6 +34,9 @@ namespace SwCheckinConflictButtonAddin
         private volatile bool _closed;
         private bool _syncingOperations;
         private List<CadPermissionViewItem> _selectionSnapshot;
+        private int _columnFitTries;
+        private bool _keepingFolderStar;
+        private EventHandler _columnWidthChanged;
 
         public CadPermissionWindow(WinForms.Form hostForm, List<CadPermissionRow> rows)
         {
@@ -39,6 +44,7 @@ namespace SwCheckinConflictButtonAddin
             _rows = rows ?? new List<CadPermissionRow>();
             InitializeComponent();
             GridRows.ItemsSource = _items;
+            WatchColumnWidths();
 
             if (_hostForm != null && _hostForm.IsHandleCreated)
             {
@@ -105,6 +111,7 @@ namespace SwCheckinConflictButtonAddin
 
                 if (GridRows != null)
                 {
+                    UnwatchColumnWidths();
                     GridRows.ItemsSource = null;
                     if (GridRows.Columns.Count > 0)
                     {
@@ -169,6 +176,7 @@ namespace SwCheckinConflictButtonAddin
 
                 BindRows();
                 SetLoading(null, false);
+                Dispatcher.BeginInvoke(new Action(FitThenUnlockColumnWidths), DispatcherPriority.Loaded);
             }));
         }
 
@@ -227,6 +235,167 @@ namespace SwCheckinConflictButtonAddin
 
             ConfirmButton.IsEnabled = _items.Count > 0;
             UpdateSelectAllCheck();
+        }
+
+        /// <summary>
+        /// 打开时按表头/操作文案贴合列宽，随后改成像素宽度，用户可再拖动。
+        /// </summary>
+        private void FitThenUnlockColumnWidths()
+        {
+            if (_closed || GridRows == null)
+            {
+                return;
+            }
+
+            DataGridColumn[] permColumns = { ColDocRead, ColDocModify, ColFolderRead, ColFolderModify };
+            foreach (DataGridColumn column in permColumns)
+            {
+                column.Width = new DataGridLength(1, DataGridLengthUnitType.SizeToHeader);
+            }
+
+            ColOperation.Width = new DataGridLength(MeasureOperationFitWidth());
+            GridRows.UpdateLayout();
+
+            if (ColDocRead.ActualWidth < 8 && _columnFitTries < 8)
+            {
+                _columnFitTries++;
+                Dispatcher.BeginInvoke(new Action(FitThenUnlockColumnWidths), DispatcherPriority.Loaded);
+                return;
+            }
+
+            foreach (DataGridColumn column in permColumns)
+            {
+                LockColumnToActualWidth(column);
+            }
+
+            LockColumnToActualWidth(ColOperation);
+            KeepFolderStarFill();
+        }
+
+        private void WatchColumnWidths()
+        {
+            if (_columnWidthChanged != null || GridRows == null)
+            {
+                return;
+            }
+
+            _columnWidthChanged = OnAnyColumnWidthChanged;
+            DependencyPropertyDescriptor descriptor = DependencyPropertyDescriptor.FromProperty(
+                DataGridColumn.WidthProperty,
+                typeof(DataGridColumn));
+            foreach (DataGridColumn column in GridRows.Columns)
+            {
+                descriptor.AddValueChanged(column, _columnWidthChanged);
+            }
+        }
+
+        private void UnwatchColumnWidths()
+        {
+            if (_columnWidthChanged == null || GridRows == null)
+            {
+                return;
+            }
+
+            DependencyPropertyDescriptor descriptor = DependencyPropertyDescriptor.FromProperty(
+                DataGridColumn.WidthProperty,
+                typeof(DataGridColumn));
+            foreach (DataGridColumn column in GridRows.Columns)
+            {
+                descriptor.RemoveValueChanged(column, _columnWidthChanged);
+            }
+
+            _columnWidthChanged = null;
+        }
+
+        private void OnAnyColumnWidthChanged(object sender, EventArgs e)
+        {
+            KeepFolderStarFill();
+        }
+
+        private void KeepFolderStarFill()
+        {
+            if (_keepingFolderStar || _closed || ColFolder == null)
+            {
+                return;
+            }
+
+            if (ColFolder.Width.IsStar)
+            {
+                return;
+            }
+
+            _keepingFolderStar = true;
+            try
+            {
+                ColFolder.Width = new DataGridLength(1, DataGridLengthUnitType.Star);
+            }
+            finally
+            {
+                _keepingFolderStar = false;
+            }
+        }
+
+        private static void LockColumnToActualWidth(DataGridColumn column)
+        {
+            double width = column.ActualWidth;
+            if (width < column.MinWidth)
+            {
+                width = column.MinWidth;
+            }
+
+            column.Width = new DataGridLength(width);
+            column.CanUserResize = true;
+        }
+
+        private double MeasureOperationFitWidth()
+        {
+            double text = MeasureUiText("操作", 13, FontWeights.SemiBold);
+            foreach (CadPermissionViewItem item in _items)
+            {
+                if (item.OperationTexts != null)
+                {
+                    foreach (string choice in item.OperationTexts)
+                    {
+                        text = Math.Max(text, MeasureUiText(choice, 12, FontWeights.Normal));
+                    }
+                }
+
+                text = Math.Max(text, MeasureUiText(item.Operation, 12, FontWeights.Normal));
+            }
+
+            // 单元格左右 Padding 8+8，下拉内边距 11+28，边框与箭头余量
+            return Math.Ceiling(text + 64);
+        }
+
+        private double MeasureUiText(string text, double fontSize, FontWeight weight)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return 0;
+            }
+
+            double pixelsPerDip = 1.0;
+            try
+            {
+                pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            }
+            catch
+            {
+            }
+
+            var formatted = new FormattedText(
+                text,
+                CultureInfo.CurrentCulture,
+                System.Windows.FlowDirection.LeftToRight,
+                new Typeface(
+                    new FontFamily("Microsoft YaHei UI"),
+                    FontStyles.Normal,
+                    weight,
+                    FontStretches.Normal),
+                fontSize,
+                Brushes.Black,
+                pixelsPerDip);
+            return formatted.WidthIncludingTrailingWhitespace;
         }
 
         private static string PermText(string value)

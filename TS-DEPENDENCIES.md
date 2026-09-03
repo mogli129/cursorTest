@@ -7,6 +7,7 @@
 - TS 客户端反编译：`CNetOp` / `WebPlmMiddle` **1.26.8.803**（`H:\code\ai\TS2024`）
 - 后端：`H:\code\gitlabv11\5.1230`
 - 冲突窗类型：`HustCAD.CNetOp.FrmDocExist`
+- SOLIDWORKS Add-in：**2018–2025** 共用一份 x64 DLL（不引用年份 Interop）
 
 本插件 **不引用** TS 任何 DLL（无编译期程序集依赖），全部是运行时：窗口标题、WinForms 控件、反射字段名、HTTP 约定。
 
@@ -28,7 +29,7 @@
 
 | 点 | 现状 | 等级 | 升级时看什么 |
 | --- | --- | --- | --- |
-| 同进程 | 插件作为 SW Add-in 进 `SLDWORKS.exe`，TS 检入插件也必须在同一进程 | 高 | TS 若改成独立进程弹窗，本插件钩不到、也 `FromHandle` 不到 |
+| 同进程 | 插件作为 SW Add-in 进 `SLDWORKS.exe`（**2018–2025 共用一份 DLL**），TS 检入插件也必须在同一进程 | 高 | TS 若改成独立进程弹窗，本插件钩不到、也 `FromHandle` 不到 |
 | 同 AppDomain WinForms | `Control.FromHandle` 拿到 `FrmDocExist` | 高 | TS 若改 WPF / 跨 AppDomain，注入失败，只剩标题栏 overlay（无表格、无确认回写） |
 | 程序集名 | 运行时搜 `HustCAD*`、`CNetOp`、`WebPlmMiddle`、`TeamSpace`、`NetOp` | 中 | 改名后会话反射可能失败，HTTP 调不成 |
 
@@ -181,6 +182,7 @@ TS 的 `GetInterfaceUrl` 会按 `serviceUrlMap` 改写最后一段 path。插件
 复制此表到发版记录里勾选：
 
 - [ ] 冲突窗标题仍是「检入文档冲突处理」，仍是 WinForms `Form` 且在 `SLDWORKS.exe` 内
+- [ ] 日志有 `ConnectToSW` 与 `SOLIDWORKS RevisionNumber=`（2018–2025 应能加载）
 - [ ] 仍能 `Control.FromHandle` 拿到 Form，右上角能看到注入按钮
 - [ ] 主表仍是 `DataGridView`，有代号/文件名/操作下拉，行 `Tag` 能拿到 `PlmDocId`
 - [ ] `NetOpFactory.GetNetOp` + `webPLM.AddressURL` + Token 仍能取到（看日志 `TS 会话`）
@@ -189,7 +191,7 @@ TS 的 `GetInterfaceUrl` 会按 `serviceUrlMap` 改写最后一段 path。插件
 - [ ] 操作下拉中文/多语言仍能被默认规则匹配到「本地检出替换」和「服务器替换本地」
 - [ ] 权限字仍是「读取」「修改」；otype 未改
 
-日志关键字：`冲突窗体类型=`、`首行 OID=`、`WebPlm AddressURL=`、`POST `、`getCADDocListByOIDS`、`checkAccessByObjectId`。
+日志关键字：`SOLIDWORKS RevisionNumber=`、`冲突窗体类型=`、`首行 OID=`、`WebPlm AddressURL=`、`POST `、`getCADDocListByOIDS`、`checkAccessByObjectId`。
 
 ---
 
@@ -197,7 +199,7 @@ TS 的 `GetInterfaceUrl` 会按 `serviceUrlMap` 改写最后一段 path。插件
 
 | 文件 | 职责 |
 | --- | --- |
-| `AddinOptions.cs` | 窗口标题、按钮文案 |
+| `SwAddin.cs` | COM Add-in 加载（官方 `ISwAddin`，2018–2025 共用 DLL） |
 | `ConflictWindowWatcher.cs` | 按标题/类名发现窗口 |
 | `HostFormButtonInjector.cs` | 注入按钮 |
 | `ConflictFormReader.cs` | 表格列、OID 反射 |
