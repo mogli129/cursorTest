@@ -23,7 +23,7 @@ namespace SwCheckinConflictButtonAddin
 
             if (hostForm == null || hostForm.IsDisposed)
             {
-                Alert(null, "无法获取冲突窗口，请重试。", MessageBoxIcon.Warning);
+                HcDialog.Show("无法获取冲突窗口，请重试。", AddinOptions.ButtonText, HcMessageKind.Warning);
                 return;
             }
 
@@ -38,9 +38,10 @@ namespace SwCheckinConflictButtonAddin
                 List<CadPermissionRow> rows = ConflictFormReader.ReadCadRows(hostForm);
                 if (rows.Count == 0)
                 {
-                    Alert(hostForm,
+                    HcDialog.Show(hostForm,
                         "没有识别到冲突列表中的 CAD 文档。\n可查看 %TEMP%\\SwCheckinConflictButtonAddin.log。",
-                        MessageBoxIcon.Information);
+                        AddinOptions.ButtonText,
+                        HcMessageKind.Info);
                     return;
                 }
 
@@ -51,19 +52,7 @@ namespace SwCheckinConflictButtonAddin
             catch (Exception ex)
             {
                 AddinLog.Info("自定义按钮异常: " + ex);
-                Alert(hostForm, "打开权限界面失败: " + Flatten(ex), MessageBoxIcon.Error);
-            }
-        }
-
-        private static void Alert(IWin32Window owner, string text, MessageBoxIcon icon)
-        {
-            if (owner != null)
-            {
-                MessageBox.Show(owner, text, AddinOptions.ButtonText, MessageBoxButtons.OK, icon);
-            }
-            else
-            {
-                MessageBox.Show(text, AddinOptions.ButtonText, MessageBoxButtons.OK, icon);
+                HcDialog.Show(hostForm, "打开权限界面失败: " + Flatten(ex), AddinOptions.ButtonText, HcMessageKind.Error);
             }
         }
 

@@ -70,7 +70,7 @@ public static void OnClick(IntPtr targetWindow)
 ## TeamSpace 升级审阅
 
 插件不引用 TS DLL，但运行时依赖冲突窗标题/表格、会话反射和若干 PLM 接口。完整清单见 **[TS-DEPENDENCIES.md](TS-DEPENDENCIES.md)**。TS 发版前按该文档第 9 节清单过一遍。
-
+[TS-DEPENDENCIES.md](TS-DEPENDENCIES.md)
 
 插件以稳定的 `ISwAddin` 加载进 `SLDWORKS.exe`（不绑定某一年份的 `ISldWorks` Interop）。只钩本进程的窗口创建/显示/隐藏/改标题（不含移动事件）。空闲时 2 秒扫一次顶层窗口，冲突窗打开时 1 秒一次。找到目标后优先 `Control.FromHandle` 注入 `Form.Controls`；失败才用标题栏 overlay。
 

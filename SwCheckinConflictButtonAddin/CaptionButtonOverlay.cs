@@ -157,12 +157,10 @@ namespace SwCheckinConflictButtonAddin
             catch (Exception ex)
             {
                 AddinLog.Info("按钮点击异常: " + ex);
-                MessageBox.Show(
-                    this,
+                HcDialog.Show(this,
                     "自定义按钮执行失败: " + ex.Message,
                     AddinOptions.ButtonText,
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
+                    HcMessageKind.Error);
             }
         }
     }

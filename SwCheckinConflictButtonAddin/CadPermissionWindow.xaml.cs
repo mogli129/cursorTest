@@ -14,9 +14,6 @@ using System.Windows.Forms;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WinForms = System.Windows.Forms;
-using WpfMessageBox = System.Windows.MessageBox;
-using WpfMessageBoxButton = System.Windows.MessageBoxButton;
-using WpfMessageBoxImage = System.Windows.MessageBoxImage;
 using KeyEventArgs = System.Windows.Input.KeyEventArgs;
 
 namespace SwCheckinConflictButtonAddin
@@ -167,8 +164,7 @@ namespace SwCheckinConflictButtonAddin
                 if (captured != null)
                 {
                     SetLoading(null, false);
-                    WpfMessageBox.Show(this, "打开权限界面失败: " + captured.Message, Title,
-                        WpfMessageBoxButton.OK, WpfMessageBoxImage.Error);
+                    HcDialog.Error(this, "打开权限界面失败: " + captured.Message, Title);
                     DialogResult = false;
                     Close();
                     return;
@@ -710,8 +706,7 @@ namespace SwCheckinConflictButtonAddin
 
             if (failed > 0)
             {
-                WpfMessageBox.Show(this, "有 " + failed + " 行回写冲突界面失败，详见日志。", Title,
-                    WpfMessageBoxButton.OK, WpfMessageBoxImage.Warning);
+                HcDialog.Warning(this, "有 " + failed + " 行回写冲突界面失败，详见日志。", Title);
                 return;
             }
 
