@@ -1,0 +1,11 @@
+Third-party notices
+===================
+
+HandyControl 3.5.1
+Copyright (c) HandyOrg
+License: MIT
+https://github.com/HandyOrg/HandyControl
+https://www.nuget.org/packages/HandyControl
+
+This product redistributes HandyControl.dll. A copy of the MIT license
+is included as LICENSE-HandyControl.txt.
