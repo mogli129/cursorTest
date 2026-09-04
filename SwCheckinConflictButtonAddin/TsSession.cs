@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Windows.Forms;
@@ -15,8 +16,24 @@ namespace SwCheckinConflictButtonAddin
         public string EpmBaseUrl { get; set; }
         public string OriginUrl { get; set; }
         public string UserOid { get; set; }
+        public string UserName { get; set; }
         public string Token { get; set; }
         public string Cookie { get; set; }
+
+        public void CopyFrom(TsSession other)
+        {
+            if (other == null)
+            {
+                return;
+            }
+
+            EpmBaseUrl = other.EpmBaseUrl;
+            OriginUrl = other.OriginUrl;
+            UserOid = other.UserOid;
+            UserName = other.UserName;
+            Token = other.Token;
+            Cookie = other.Cookie;
+        }
 
         public bool IsUsable
         {
@@ -50,7 +67,7 @@ namespace SwCheckinConflictButtonAddin
             if (cookieControl != null)
             {
                 // UserInfo 属性只有 setter，必须读私有字段 _userInfo
-                ApplyUserOid(session, ReflectionValue.Get(cookieControl, "_userInfo", "userInfo", "UserInfo"));
+                ApplyUserIdentity(session, ReflectionValue.Get(cookieControl, "_userInfo", "userInfo", "UserInfo"));
                 string token = FirstText(cookieControl, "TsToken", "_strToken", "Token");
                 if (!string.IsNullOrWhiteSpace(token))
                 {
@@ -68,21 +85,345 @@ namespace SwCheckinConflictButtonAddin
                 AddinLog.Info("UserCookieControl 为空");
             }
 
-            if (string.IsNullOrWhiteSpace(session.UserOid))
-            {
-                FillFromSessionInfo(session);
-            }
+            FillFromSessionInfo(session);
 
             if (string.IsNullOrWhiteSpace(session.UserOid))
             {
-                ApplyUserOidText(session, TryUserOidFromJwt(session.Token));
+                ApplyUserOidText(session, JwtClaim(session.Token,
+                    "UserOID", "userOid", "userOID", "oid", "user_id", "userId", "uid"));
             }
 
-            AddinLog.Info("TS 会话 oid=" + (session.UserOid ?? "")
+            if (string.IsNullOrWhiteSpace(session.UserName))
+            {
+                ApplyUserName(session, JwtClaim(session.Token,
+                    "user_name", "username", "preferred_username", "UserName", "name"));
+            }
+
+            AddinLog.Info("TS 会话 user=" + (session.UserName ?? "")
+                + " oid=" + (session.UserOid ?? "")
                 + " epm=" + session.EpmBaseUrl
                 + " origin=" + session.OriginUrl
                 + " token=" + Mask(session.Token));
             return session;
+        }
+
+        public static void EnsureValidToken(TsSession session, Form seedForm)
+        {
+            if (session == null)
+            {
+                throw new LoginExpiredException();
+            }
+
+            bool expired = IsJwtExpired(session.Token);
+            TokenProbeResult probe = expired ? TokenProbeResult.Invalid : ProbeRefreshToken(session);
+            if (probe == TokenProbeResult.Valid)
+            {
+                return;
+            }
+
+            if (probe == TokenProbeResult.Unknown && !expired)
+            {
+                AddinLog.Info("refreshToken 无法确认（如 404），JWT 未过期，继续使用当前 Token");
+                return;
+            }
+
+            AddinLog.Info("Token 无效或已过期，尝试 TeamSpace 静默重登");
+            ReloginOrThrow(session, seedForm);
+        }
+
+        public static bool TryRelogin(TsSession session, Form seedForm)
+        {
+            try
+            {
+                ReloginOrThrow(session, seedForm);
+                return true;
+            }
+            catch (LoginExpiredException)
+            {
+                return false;
+            }
+        }
+
+        private static void ReloginOrThrow(TsSession session, Form seedForm)
+        {
+            if (!InvokeTsRelogin())
+            {
+                throw new LoginExpiredException();
+            }
+
+            session.CopyFrom(Resolve(seedForm));
+            if (string.IsNullOrWhiteSpace(session.Token))
+            {
+                throw new LoginExpiredException();
+            }
+
+            if (IsJwtExpired(session.Token))
+            {
+                throw new LoginExpiredException();
+            }
+
+            TokenProbeResult probe = ProbeRefreshToken(session);
+            if (probe == TokenProbeResult.Invalid)
+            {
+                throw new LoginExpiredException();
+            }
+        }
+
+        private static bool InvokeTsRelogin()
+        {
+            object netOp = GetNetOp();
+            if (netOp == null)
+            {
+                AddinLog.Info("静默重登失败：未找到 NetOp");
+                return false;
+            }
+
+            string message;
+            object cookieControl = ReflectionValue.Get(netOp,
+                "UserCookieControl", "_userCookieControl", "CookieControl");
+            if (TryInvokeRefString(cookieControl, "Update", out message))
+            {
+                AddinLog.Info("UserCookieControl.Update 成功 " + message);
+                return true;
+            }
+
+            if (!string.IsNullOrEmpty(message))
+            {
+                AddinLog.Info("UserCookieControl.Update: " + message);
+            }
+
+            object user = cookieControl == null
+                ? null
+                : ReflectionValue.Get(cookieControl, "_userInfo", "userInfo", "UserInfo");
+            if (user == null)
+            {
+                Type type = FindType("HustCAD.Session.SessionInfo");
+                user = GetStatic(type, "UserInfo");
+            }
+
+            string userName = FirstText(user, "UserName", "UserID");
+            string password = FirstText(user, "UserPWD", "UserPwd", "Password");
+            if (string.IsNullOrWhiteSpace(userName) || string.IsNullOrWhiteSpace(password))
+            {
+                AddinLog.Info("静默重登失败：没有可用的用户名或密码");
+                return false;
+            }
+
+            if (!TryInvokeLoginSys(netOp, userName, password, out message))
+            {
+                AddinLog.Info("LoginSys 失败: " + message);
+                return false;
+            }
+
+            AddinLog.Info("LoginSys 成功");
+            return true;
+        }
+
+        private static bool TryInvokeRefString(object target, string methodName, out string message)
+        {
+            message = string.Empty;
+            if (target == null || string.IsNullOrEmpty(methodName))
+            {
+                return false;
+            }
+
+            try
+            {
+                MethodInfo method = target.GetType().GetMethod(methodName,
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.IgnoreCase,
+                    null, new[] { typeof(string).MakeByRefType() }, null);
+                if (method == null)
+                {
+                    return false;
+                }
+
+                object[] args = { string.Empty };
+                object result = method.Invoke(target, args);
+                message = args[0] as string ?? string.Empty;
+                return result is bool && (bool)result;
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info(target.GetType().Name + "." + methodName + " 失败: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static bool TryInvokeLoginSys(object netOp, string userName, string password, out string message)
+        {
+            message = string.Empty;
+            try
+            {
+                MethodInfo method = netOp.GetType().GetMethod("LoginSys",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.IgnoreCase,
+                    null, new[] { typeof(string), typeof(string), typeof(string).MakeByRefType() }, null);
+                if (method == null)
+                {
+                    AddinLog.Info(netOp.GetType().Name + " 没有 LoginSys(string,string,ref string)");
+                    return false;
+                }
+
+                object[] args = { userName, password, string.Empty };
+                object result = method.Invoke(netOp, args);
+                message = args[2] as string ?? string.Empty;
+                return result is bool && (bool)result;
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("LoginSys 调用失败: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static TokenProbeResult ProbeRefreshToken(TsSession session)
+        {
+            if (session == null || string.IsNullOrWhiteSpace(session.OriginUrl) || string.IsNullOrWhiteSpace(session.Token))
+            {
+                return TokenProbeResult.Invalid;
+            }
+
+            string url = session.OriginUrl.TrimEnd('/') + "/rest/userService/v1/user/refreshToken";
+            HttpCallResult call = PlmHttpClient.TryGet(url, session);
+            if (call.StatusCode == 401 || call.StatusCode == 403)
+            {
+                return TokenProbeResult.Invalid;
+            }
+
+            if (call.StatusCode == 200)
+            {
+                ApplyRefreshedToken(session, call.Body);
+                return TokenProbeResult.Valid;
+            }
+
+            AddinLog.Info("refreshToken 探测 HTTP " + call.StatusCode + "，不当作 Token 有效");
+            return TokenProbeResult.Unknown;
+        }
+
+        private static void ApplyRefreshedToken(TsSession session, string body)
+        {
+            Dictionary<string, object> map;
+            try
+            {
+                map = JsonUtil.ParseObject(body);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (map == null)
+            {
+                return;
+            }
+
+            string token = JsonUtil.GetString(map, "token", "accessToken", "tsToken");
+            Dictionary<string, object> data = JsonUtil.GetObject(map, "data");
+            if (string.IsNullOrWhiteSpace(token) && data != null)
+            {
+                token = JsonUtil.GetString(data, "token", "accessToken", "tsToken");
+            }
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                token = JsonUtil.GetString(map, "data");
+            }
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return;
+            }
+
+            session.Token = token.Trim();
+            WriteTokenToTs(session.Token);
+            AddinLog.Info("已写入 refreshToken 返回的新 Token " + Mask(session.Token));
+        }
+
+        private static void WriteTokenToTs(string token)
+        {
+            object netOp = GetNetOp();
+            if (netOp == null)
+            {
+                return;
+            }
+
+            object web = ReflectionValue.Get(netOp, "webPLM", "WebPLM", "WebPlm", "WebPlmMiddle");
+            ReflectionValue.Set(web, "UserTsToken", token);
+            ReflectionValue.Set(web, "_strUserTsToken", token);
+            object cookieControl = ReflectionValue.Get(netOp,
+                "UserCookieControl", "_userCookieControl", "CookieControl");
+            ReflectionValue.Set(cookieControl, "TsToken", token);
+            ReflectionValue.Set(cookieControl, "_strToken", token);
+        }
+
+        private static bool IsJwtExpired(string token)
+        {
+            Dictionary<string, object> payload = ParseJwtPayload(token);
+            if (payload == null)
+            {
+                return false;
+            }
+
+            string expText = JsonUtil.GetString(payload, "exp");
+            if (string.IsNullOrWhiteSpace(expText))
+            {
+                return false;
+            }
+
+            double exp;
+            if (!double.TryParse(expText, NumberStyles.Any, CultureInfo.InvariantCulture, out exp))
+            {
+                return false;
+            }
+
+            if (exp > 1000000000000d)
+            {
+                exp = exp / 1000d;
+            }
+
+            long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            bool expired = exp + 5 < now;
+            if (expired)
+            {
+                AddinLog.Info("JWT exp=" + expText + " 已过期");
+            }
+
+            return expired;
+        }
+
+        private static string JwtClaim(string token, params string[] names)
+        {
+            Dictionary<string, object> payload = ParseJwtPayload(token);
+            return payload == null ? string.Empty : JsonUtil.GetString(payload, names);
+        }
+
+        private static Dictionary<string, object> ParseJwtPayload(string token)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return null;
+            }
+
+            string value = token.Trim();
+            if (value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                value = value.Substring(7).Trim();
+            }
+
+            string[] parts = value.Split('.');
+            if (parts.Length < 2)
+            {
+                return null;
+            }
+
+            try
+            {
+                return JsonUtil.ParseObject(DecodeBase64Url(parts[1]));
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("JWT 解析失败: " + ex.Message);
+                return null;
+            }
         }
 
         private static object GetNetOp()
@@ -206,7 +547,7 @@ namespace SwCheckinConflictButtonAddin
             }
 
             AddinLog.Info("SessionInfo.UserInfo 类型=" + userInfo.GetType().FullName);
-            ApplyUserOid(session, userInfo);
+            ApplyUserIdentity(session, userInfo);
             if (string.IsNullOrWhiteSpace(session.Token))
             {
                 string token = FirstText(userInfo, "TsToken", "Token");
@@ -277,14 +618,28 @@ namespace SwCheckinConflictButtonAddin
             return null;
         }
 
-        private static void ApplyUserOid(TsSession session, object user)
+        private static void ApplyUserIdentity(TsSession session, object user)
         {
-            if (user == null || !string.IsNullOrWhiteSpace(session.UserOid))
+            if (user == null)
             {
                 return;
             }
 
             ApplyUserOidText(session, FirstText(user, "UserOID", "UserOid", "OID", "Oid"));
+            if (string.IsNullOrWhiteSpace(session.UserName))
+            {
+                ApplyUserName(session, FirstText(user, "UserName", "UserID"));
+            }
+        }
+
+        private static void ApplyUserName(TsSession session, string name)
+        {
+            if (session == null || !string.IsNullOrWhiteSpace(session.UserName) || string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            session.UserName = name.Trim();
         }
 
         private static void ApplyUserOidText(TsSession session, string oid)
@@ -295,38 +650,6 @@ namespace SwCheckinConflictButtonAddin
             }
 
             session.UserOid = oid.Trim();
-        }
-
-        private static string TryUserOidFromJwt(string token)
-        {
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                return string.Empty;
-            }
-
-            string value = token.Trim();
-            if (value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            {
-                value = value.Substring(7).Trim();
-            }
-
-            string[] parts = value.Split('.');
-            if (parts.Length < 2)
-            {
-                return string.Empty;
-            }
-
-            try
-            {
-                Dictionary<string, object> payload = JsonUtil.ParseObject(DecodeBase64Url(parts[1]));
-                return JsonUtil.GetString(payload,
-                    "UserOID", "userOid", "userOID", "oid", "user_id", "userId", "uid");
-            }
-            catch (Exception ex)
-            {
-                AddinLog.Info("JWT 解析 UserOID 失败: " + ex.Message);
-                return string.Empty;
-            }
         }
 
         private static string DecodeBase64Url(string text)
@@ -382,6 +705,23 @@ namespace SwCheckinConflictButtonAddin
             }
 
             return token.Substring(0, 4) + "..." + token.Substring(token.Length - 4);
+        }
+    }
+
+    internal enum TokenProbeResult
+    {
+        Valid,
+        Invalid,
+        Unknown
+    }
+
+    internal sealed class LoginExpiredException : InvalidOperationException
+    {
+        public const string DefaultMessage = "登录已失效，请在 TeamSpace 中重新登录后再试。";
+
+        public LoginExpiredException()
+            : base(DefaultMessage)
+        {
         }
     }
 }

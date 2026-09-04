@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Windows.Forms;
 
 namespace SwCheckinConflictButtonAddin
 {
@@ -41,10 +42,14 @@ namespace SwCheckinConflictButtonAddin
         public const string ModifyRight = "修改";
 
         private readonly TsSession _session;
+        private readonly Form _hostForm;
 
-        public PlmApiClient(TsSession session)
+        public bool AccessUnverified { get; private set; }
+
+        public PlmApiClient(TsSession session, Form hostForm)
         {
             _session = session ?? throw new ArgumentNullException("session");
+            _hostForm = hostForm;
         }
 
         public List<PlmCadDoc> GetCadDocsByOids(List<string> oids, Action<string, int, int> progress)
@@ -142,6 +147,11 @@ namespace SwCheckinConflictButtonAddin
 
         public List<PlmAccess> CheckAccess(List<CadPermissionRow> targets)
         {
+            return CheckAccess(targets, false);
+        }
+
+        private List<PlmAccess> CheckAccess(List<CadPermissionRow> targets, bool retried)
+        {
             var objects = new List<Dictionary<string, object>>();
             var names = new List<string>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -171,6 +181,7 @@ namespace SwCheckinConflictButtonAddin
                 return result;
             }
 
+            string accessUserId = null;
             foreach (object item in list)
             {
                 Dictionary<string, object> map = JsonUtil.AsObject(item);
@@ -179,25 +190,84 @@ namespace SwCheckinConflictButtonAddin
                     continue;
                 }
 
-                string authorized = JsonUtil.GetString(map, "isAuthorized", "authorized");
-                bool? flag = null;
-                if (!string.IsNullOrEmpty(authorized))
+                string userId = JsonUtil.GetString(map, "userid", "userId", "userID");
+                if (!string.IsNullOrWhiteSpace(userId))
                 {
-                    flag = !authorized.Equals("NO", StringComparison.OrdinalIgnoreCase)
-                        && !authorized.Equals("false", StringComparison.OrdinalIgnoreCase)
-                        && authorized != "0";
+                    if (accessUserId == null)
+                    {
+                        accessUserId = userId.Trim();
+                    }
+                    else if (!string.Equals(accessUserId, userId.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        AddinLog.Info("权限返回多个 userid: " + accessUserId + " / " + userId);
+                    }
                 }
 
                 result.Add(new PlmAccess
                 {
                     ObjectOid = JsonUtil.GetString(map, "objectoid", "objectOid", "oid"),
                     Missing = JsonUtil.GetString(map, "access"),
-                    Authorized = flag
+                    Authorized = ParseAuthorized(JsonUtil.GetString(map, "isAuthorized", "authorized"))
                 });
             }
 
-            AddinLog.Info("checkAccessByObjectId 对象=" + objects.Count + " 返回=" + result.Count);
+            if (!MatchesLoginName(accessUserId))
+            {
+                AddinLog.Info("权限返回 userid=" + accessUserId + " 与登录名 " + (_session.UserName ?? "") + " 不一致");
+                if (retried || !TsSessionLocator.TryRelogin(_session, _hostForm))
+                {
+                    throw new LoginExpiredException();
+                }
+
+                return CheckAccess(targets, true);
+            }
+
+            AddinLog.Info("checkAccessByObjectId 对象=" + objects.Count + " 返回=" + result.Count
+                + " userid=" + (accessUserId ?? ""));
             return result;
+        }
+
+        private bool MatchesLoginName(string accessUserId)
+        {
+            if (string.IsNullOrWhiteSpace(accessUserId))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(_session.UserName))
+            {
+                AddinLog.Info("当前会话没有登录名，跳过 userid 核对");
+                return true;
+            }
+
+            return string.Equals(_session.UserName.Trim(), accessUserId.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool? ParseAuthorized(string authorized)
+        {
+            if (string.IsNullOrWhiteSpace(authorized))
+            {
+                return null;
+            }
+
+            string text = authorized.Trim();
+            if (text.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                || text.Equals("YES", StringComparison.OrdinalIgnoreCase)
+                || text.Equals("true", StringComparison.OrdinalIgnoreCase)
+                || text == "1")
+            {
+                return true;
+            }
+
+            if (text.Equals("N", StringComparison.OrdinalIgnoreCase)
+                || text.Equals("NO", StringComparison.OrdinalIgnoreCase)
+                || text.Equals("false", StringComparison.OrdinalIgnoreCase)
+                || text == "0")
+            {
+                return false;
+            }
+
+            return null;
         }
 
         public void Fill(List<CadPermissionRow> rows, Action<string, int, int> progress)
@@ -246,8 +316,34 @@ namespace SwCheckinConflictButtonAddin
                 }
             }
 
+            Report(progress, "正在校验登录状态…", 0, 0);
+            try
+            {
+                TsSessionLocator.EnsureValidToken(_session, _hostForm);
+            }
+            catch (LoginExpiredException ex)
+            {
+                AccessUnverified = true;
+                AddinLog.Info("登录无效，跳过权限查询: " + ex.Message);
+                MarkAccessUnknown(rows);
+                Report(progress, "数据加载完成", 1, 1);
+                return;
+            }
+
             Report(progress, "正在校验读取/修改权限…", 0, 0);
-            List<PlmAccess> accesses = CheckAccess(rows);
+            List<PlmAccess> accesses;
+            try
+            {
+                accesses = CheckAccess(rows);
+            }
+            catch (LoginExpiredException ex)
+            {
+                AccessUnverified = true;
+                AddinLog.Info("权限 userid 与当前用户不一致: " + ex.Message);
+                MarkAccessUnknown(rows);
+                Report(progress, "数据加载完成", 1, 1);
+                return;
+            }
             var accessMap = new Dictionary<string, PlmAccess>(StringComparer.OrdinalIgnoreCase);
             foreach (PlmAccess access in accesses)
             {
@@ -263,6 +359,19 @@ namespace SwCheckinConflictButtonAddin
             }
 
             Report(progress, "数据加载完成", 1, 1);
+        }
+
+        private static void MarkAccessUnknown(List<CadPermissionRow> rows)
+        {
+            if (rows == null)
+            {
+                return;
+            }
+
+            foreach (CadPermissionRow row in rows)
+            {
+                row.DocRead = row.DocModify = row.FolderRead = row.FolderModify = "未知";
+            }
         }
 
         private static void Report(Action<string, int, int> progress, string message, int current, int maximum)
@@ -314,6 +423,13 @@ namespace SwCheckinConflictButtonAddin
             row.FolderPath = PrefixDomain(path, row.DomainName);
         }
 
+        private static bool HasMissingRight(string missing, string right)
+        {
+            return !string.IsNullOrEmpty(missing)
+                && !string.IsNullOrEmpty(right)
+                && missing.IndexOf(right, StringComparison.Ordinal) >= 0;
+        }
+
         private static void ApplyAccess(CadPermissionRow row, Dictionary<string, PlmAccess> map)
         {
             row.DocRead = FormatAccess(map, row.DocOid, ReadRight);
@@ -335,12 +451,23 @@ namespace SwCheckinConflictButtonAddin
                 return "未知";
             }
 
-            if (!string.IsNullOrEmpty(access.Missing) && access.Missing.IndexOf(right, StringComparison.Ordinal) >= 0)
+            // isAuthorized=Y：所查权限都有。isAuthorized=N：access 里列出的是没有的，未列出的是有的。
+            if (access.Authorized == true)
             {
-                return "无";
+                return "有";
             }
 
-            return "有";
+            if (access.Authorized == false)
+            {
+                return HasMissingRight(access.Missing, right) ? "无" : "有";
+            }
+
+            if (string.IsNullOrEmpty(access.Missing))
+            {
+                return "未知";
+            }
+
+            return HasMissingRight(access.Missing, right) ? "无" : "有";
         }
 
         private static string ResolveFolderOtype(PlmCadDoc doc)

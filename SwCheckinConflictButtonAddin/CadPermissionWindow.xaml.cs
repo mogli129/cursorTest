@@ -130,6 +130,7 @@ namespace SwCheckinConflictButtonAddin
         private void LoadPermissions()
         {
             Exception error = null;
+            bool accessUnverified = false;
             try
             {
                 TsSession session = TsSessionLocator.Resolve(_hostForm);
@@ -139,8 +140,10 @@ namespace SwCheckinConflictButtonAddin
                         "未能从 TeamSpace 取到服务器地址、登录 Token 或用户 OID。请确认已登录 TS 后再试。");
                 }
 
-                new PlmApiClient(session).Fill(_rows, (message, current, maximum) =>
+                var client = new PlmApiClient(session, _hostForm);
+                client.Fill(_rows, (message, current, maximum) =>
                     ReportLoading(message));
+                accessUnverified = client.AccessUnverified;
             }
             catch (Exception ex)
             {
@@ -154,6 +157,7 @@ namespace SwCheckinConflictButtonAddin
             }
 
             Exception captured = error;
+            bool unverified = accessUnverified;
             Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (_closed)
@@ -173,6 +177,12 @@ namespace SwCheckinConflictButtonAddin
                 BindRows();
                 SetLoading(null, false);
                 Dispatcher.BeginInvoke(new Action(FitThenUnlockColumnWidths), DispatcherPriority.Loaded);
+                if (unverified)
+                {
+                    HcDialog.Warning(this,
+                        LoginExpiredException.DefaultMessage + "权限未校验，权限列为「未知」。",
+                        Title);
+                }
             }));
         }
 

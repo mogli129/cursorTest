@@ -100,6 +100,27 @@ namespace SwCheckinConflictButtonAddin
             return null;
         }
 
+        public static Dictionary<string, object> GetObject(IDictionary<string, object> map, params string[] names)
+        {
+            if (map == null)
+            {
+                return null;
+            }
+
+            foreach (string name in names)
+            {
+                foreach (KeyValuePair<string, object> pair in map)
+                {
+                    if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return AsObject(pair.Value);
+                    }
+                }
+            }
+
+            return null;
+        }
+
         public static string ToText(object value)
         {
             if (value == null)

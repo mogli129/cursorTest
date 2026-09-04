@@ -43,20 +43,85 @@ namespace SwCheckinConflictButtonAddin
             }
 
             AddinLog.Info("POST " + url + " bytes=" + bytes.Length);
-            HttpWebResponse response;
+            return ReadResponse(Send(request), url);
+        }
+
+        public static HttpCallResult TryGet(string url, TsSession session)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                throw new InvalidOperationException("接口地址为空");
+            }
+
+            HttpWebRequest request = CreateRequest(url, "GET", session);
+            AddinLog.Info("GET " + url);
             try
             {
-                response = (HttpWebResponse)request.GetResponse();
+                using (HttpWebResponse response = Send(request))
+                using (var reader = new StreamReader(response.GetResponseStream() ?? Stream.Null, Encoding.UTF8))
+                {
+                    string text = reader.ReadToEnd();
+                    int code = (int)response.StatusCode;
+                    if (code != 200)
+                    {
+                        AddinLog.Info("后端 HTTP " + code + " " + url + " body=" + Trim(text, 800));
+                    }
+
+                    return new HttpCallResult { StatusCode = code, Body = text };
+                }
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("GET 失败 " + url + ": " + ex.Message);
+                return new HttpCallResult { StatusCode = 0, Body = ex.Message };
+            }
+        }
+
+        private static HttpWebRequest CreateRequest(string url, string method, TsSession session)
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            ServicePointManager.Expect100Continue = false;
+
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.Method = method;
+            request.Timeout = 120000;
+            request.ReadWriteTimeout = 120000;
+            request.KeepAlive = false;
+            request.Headers["Accept-Language"] = "zh-CN";
+            if (session != null && !string.IsNullOrEmpty(session.Token))
+            {
+                request.Headers["authorization"] = session.Token;
+                request.Headers["ootb-auth-token"] = session.Token;
+            }
+
+            if (session != null && !string.IsNullOrEmpty(session.Cookie))
+            {
+                request.Headers["Cookie"] = session.Cookie;
+            }
+
+            return request;
+        }
+
+        private static HttpWebResponse Send(HttpWebRequest request)
+        {
+            try
+            {
+                return (HttpWebResponse)request.GetResponse();
             }
             catch (WebException ex)
             {
-                response = ex.Response as HttpWebResponse;
+                var response = ex.Response as HttpWebResponse;
                 if (response == null)
                 {
                     throw new InvalidOperationException("调用后端失败: " + ex.Message, ex);
                 }
-            }
 
+                return response;
+            }
+        }
+
+        private static string ReadResponse(HttpWebResponse response, string url)
+        {
             using (response)
             using (var reader = new StreamReader(response.GetResponseStream() ?? Stream.Null, Encoding.UTF8))
             {
@@ -173,5 +238,11 @@ namespace SwCheckinConflictButtonAddin
 
             return text.Substring(0, max) + "...";
         }
+    }
+
+    internal sealed class HttpCallResult
+    {
+        public int StatusCode { get; set; }
+        public string Body { get; set; }
     }
 }

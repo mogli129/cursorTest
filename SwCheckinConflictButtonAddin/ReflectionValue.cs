@@ -40,6 +40,39 @@ namespace SwCheckinConflictButtonAddin
             return value == null ? string.Empty : Convert.ToString(value);
         }
 
+        public static bool Set(object target, string name, object value)
+        {
+            if (target == null || string.IsNullOrEmpty(name))
+            {
+                return false;
+            }
+
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic
+                | BindingFlags.IgnoreCase;
+            try
+            {
+                PropertyInfo property = target.GetType().GetProperty(name, flags);
+                if (property != null && property.CanWrite && property.GetIndexParameters().Length == 0)
+                {
+                    property.SetValue(target, value, null);
+                    return true;
+                }
+
+                FieldInfo field = target.GetType().GetField(name, flags);
+                if (field != null && !field.IsLiteral && !field.IsInitOnly)
+                {
+                    field.SetValue(target, value);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                AddinLog.Info("写入 " + target.GetType().Name + "." + name + " 失败: " + ex.Message);
+            }
+
+            return false;
+        }
+
         public static object Call(object target, string methodName, params object[] args)
         {
             if (target == null || string.IsNullOrEmpty(methodName))
